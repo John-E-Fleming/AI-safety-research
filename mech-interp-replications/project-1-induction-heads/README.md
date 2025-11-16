@@ -1,10 +1,10 @@
 # Project 1: Induction Heads
 
-A replication of Anthropic's groundbreaking research on induction heads and in-context learning in transformer models.
+A replication of Anthropic's research on induction heads and in-context learning in transformer models.
 
 ## Overview
 
-This project implements and explores **induction heads** - a key mechanistic component that enables transformers to perform in-context learning. The notebook demonstrates how a simple two-layer circuit can implement pattern matching and completion.
+This project implements and explores **induction heads** - a key mechanistic component that enables transformers to perform in-context learning. The notebook works through how a simple two-layer circuit can implement pattern matching and completion.
 
 **Original Paper:** [In-context Learning and Induction Heads](https://transformer-circuits.pub/2022/in-context-learning-and-induction-heads/index.html) (Anthropic, 2022)
 
