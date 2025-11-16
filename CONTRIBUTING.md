@@ -19,9 +19,9 @@ mech-interp-replications/
 ### Naming Conventions
 
 - **Project folders:** `project-{number}-{descriptive-name}/`
-  - Example: `project-3-superposition-toy-models/`
+  - Example: `project-3-copy-suppression/`
 - **Notebooks:** `{descriptive_name}_notebook.ipynb`
-  - Example: `superposition_notebook.ipynb`
+  - Example: `copy_suppression_notebook.ipynb`
 - Use lowercase with hyphens for folders, underscores for notebooks
 
 ### Required Components
@@ -182,8 +182,6 @@ Use clear, descriptive commit messages:
 
 This is a personal learning repository. These guidelines ensure:
 - Consistency for portfolio presentation
-- Easy navigation for potential employers
+- Easy navigation for potential collaborators
 - Reproducibility for future reference
-- Professional presentation of work
 
-Feel free to adapt these guidelines as the repository evolves!
