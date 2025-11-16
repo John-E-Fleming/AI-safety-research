@@ -1,0 +1,31 @@
+# Core Dependencies for AI Safety Research Projects
+# These are the main libraries used across mechanistic interpretability notebooks
+
+# TransformerLens - Primary library for mechanistic interpretability
+transformer-lens>=1.0.0
+
+# Deep Learning Framework
+torch>=2.0.0
+einops>=0.6.0
+
+# Visualization
+plotly>=5.0.0
+circuitsvis>=1.0.0
+
+# Data Manipulation & Analysis
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Jupyter Support (for local development)
+jupyter>=1.0.0
+ipykernel>=6.0.0
+ipywidgets>=8.0.0
+
+# Utilities
+tqdm>=4.65.0
+jaxtyping>=0.2.0
+
+# Optional but useful
+# datasets  # For loading pre-made datasets
+# wandb     # For experiment tracking
+# pytest    # For testing custom implementations
