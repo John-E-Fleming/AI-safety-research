@@ -1,0 +1,13 @@
+transformer-lens
+torch
+numpy
+pandas
+matplotlib
+scikit-learn
+jupyter
+ipykernel
+datasets
+transformers
+accelerate
+nnsight
+seaborn
