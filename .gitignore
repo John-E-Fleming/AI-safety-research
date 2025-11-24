@@ -25,6 +25,8 @@ venv/
 env/
 ENV/
 .venv
+mech_interp_env/
+mech_interp_env_py311/
 
 # Jupyter Notebook
 .ipynb_checkpoints/
@@ -71,3 +73,6 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+
+# Claude files
+.claude/
