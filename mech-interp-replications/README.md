@@ -16,7 +16,8 @@ This is crucial for AI safety because it helps us understand and control what mo
 
 ### [Project 1: Induction Heads](./project-1-induction-heads/)
 
-**Research Paper:** ["In-context Learning and Induction Heads"](https://transformer-circuits.pub/2022/in-context-learning-and-induction-heads/index.html) (Anthropic, 2022)
+**Research Papers:** 
+- ["In-context Learning and Induction Heads"](https://transformer-circuits.pub/2022/in-context-learning-and-induction-heads/index.html) (Anthropic, 2022)
 
 **What You'll Learn:**
 - How transformers perform in-context learning
