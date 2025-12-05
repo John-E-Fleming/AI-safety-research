@@ -1,7 +1,7 @@
 # AI Safety Research - Mechanistic Interpretability Portfolio
 
 **Context File for Claude Code Sessions**
-*Last Updated: 2025-11-23*
+*Last Updated: 2025-12-05*
 
 ---
 
@@ -13,9 +13,10 @@ This is a mechanistic interpretability research portfolio focused on building ex
 2. **Active research project** on faithfulness detection using probes
 3. **Extensive reference materials** (~3.1MB of mech interp documentation)
 
-**Primary Technologies:** TransformerLens, PyTorch, scikit-learn, Jupyter
-**Development Environment:** Google Colab (GPU), local Jupyter notebooks
+**Primary Technologies:** TransformerLens (GPT-2), nnsight (Qwen/reasoning models), PyTorch, scikit-learn, Jupyter
+**Development Environment:** Vast.ai (GPU for Qwen), Google Colab, local Jupyter
 **Git Branch:** main
+**Current Phase:** Week 2 - Transitioning from TransformerLens to nnsight for reasoning model probing
 
 ---
 
@@ -33,7 +34,10 @@ AI-safety-research/
 │
 ├── mech-interp-projects/              # Novel research projects
 │   └── probe-based-faithfulness-detection/  # IN PROGRESS
-│       ├── faithfulness_detection_with_probes_notebook.ipynb (2.9MB)
+│       ├── day3-4_first_probes.ipynb        # COMPLETED - Sentiment probing basics
+│       ├── day5-6_advanced_techniques.ipynb # COMPLETED - Position/component analysis
+│       ├── day8-9_nnsight_setup.ipynb       # CURRENT - nnsight + Qwen setup
+│       ├── mats_project_guide.md            # Comprehensive project guide with learnings
 │       └── README.md (40KB comprehensive guide)
 │
 ├── Mechanistic_Interpretability_Context_Documents/
@@ -56,51 +60,81 @@ AI-safety-research/
 ## Current Focus: Faithfulness Detection with Probes
 
 **Location:** `mech-interp-projects/probe-based-faithfulness-detection/`
-**Status:** Active development (Week 1-2 preparation phase)
+**Status:** Week 2 - Transitioning to nnsight/Qwen (Day 8-9)
 **Goal:** Execute a sophisticated 20-hour research project investigating when probes can detect unfaithful Chain-of-Thought (CoT) reasoning
 
 ### Research Question
 "What fundamental properties determine when probes can detect unfaithful CoT, and when do they fail?"
 
-### Project Timeline (4 Weeks)
+### Progress Summary
 
-**Week 1-2: Foundation Building (40-50 hours)**
-- Environment setup (GPU via RunPod/Vast.ai/Colab)
-- Transformer basics and model interaction
-- Sentiment probing exercises
-- Multi-layer comparison analysis
-- Probe toolkit development
+**COMPLETED (Days 1-6):**
+- ✅ Day 3-4: Basic sentiment probing with TransformerLens/GPT-2
+- ✅ Day 5-6: Advanced techniques (position analysis, attention heads, MLP probing)
+- ✅ Key conceptual learnings documented in `mats_project_guide.md`
 
-**Week 3: Final Preparation (15-20 hours)**
-- CoT faithfulness dataset collection/creation
-- Analysis tools (CoTProbeAnalyzer class)
-- End-to-end pipeline testing
-- Hour-by-hour execution planning
+**CURRENT (Days 8-9):**
+- 🔄 Setting up nnsight with Qwen2.5-7B-Instruct
+- 🔄 Learning nnsight API (different from TransformerLens)
+- 🔄 Notebook created: `day8-9_nnsight_setup.ipynb`
+- ⏳ Next: Understanding CoT structure, building CoT dataset
 
-**Week 4: Execution (22 hours)**
-- 20-hour intensive research project
-- Systematic experiments on layers, positions, generalization
-- Adversarial testing and failure modes
-- Research paper write-up with executive summary
+**UPCOMING:**
+- Week 3: CoT dataset creation, analysis tools
+- Week 4: 20-hour intensive research execution
 
-### Key Hypotheses
-- **H1:** Faithfulness detection works better at later layers (closer to output)
-- **H2:** Information is concentrated at conclusion tokens ("therefore", "so")
-- **H3:** Probes generalize within task types but not across tasks
-- **H4:** Probes are vulnerable to adversarial stylistic changes
+### Key Learnings from Probe Exercises (Days 3-6)
 
-### Code Infrastructure
-The notebook provides:
-- **ProbeToolkit class** - Systematic comparison methods across layers/positions
-- **CoTProbeAnalyzer class** - Specialized CoT analysis tools
-- Activation extraction utilities (residual stream, MLP, attention)
-- Visualization methods (layer comparisons, position heatmaps)
-- Full troubleshooting guide
+**Critical conceptual corrections documented:**
+
+1. **"Later layers have more information" is WRONG**
+   - Later layers contain *different* information, not more
+   - Late layers optimized for output generation, may be worse for probing internal state
+   - Middle layers might preserve reasoning state better
+
+2. **MLP vs Attention serve different roles**
+   - Attention: routes information between positions
+   - MLP: transforms information within position
+   - Both involve nonlinearity (attention has softmax, MLP has GELU)
+
+3. **Position matters due to computational roles**
+   - Last token often contaminated by output preparation
+   - Second-to-last token may have cleaner semantic representation
+
+4. **Residual stream accumulates, doesn't overwrite**
+   - Each layer adds to residual stream
+   - MLP probes can be worse than residual stream probes if MLP isn't computing the target feature
+
+### Revised Hypotheses (Based on Learnings)
+
+- **H1 (Revised):** Later layers may be *worse* for faithfulness because they're optimized for output. Test middle layers vs late layers.
+- **H2 (Addition):** Also test second-to-last tokens, not just conclusion tokens
+- **H3 (Unchanged):** Probes generalize within task types but not across tasks
+- **H4 (Unchanged):** Probes are vulnerable to adversarial stylistic changes
+- **H5 (New):** Individual attention heads may outperform residual stream probes
+
+### Why nnsight Instead of TransformerLens?
+
+| Aspect | TransformerLens | nnsight |
+|--------|-----------------|---------|
+| Model support | GPT-2, GPT-Neo only | ANY HuggingFace model |
+| Qwen/Llama/DeepSeek | NOT SUPPORTED | Fully supported |
+| CoT reasoning models | Cannot use | Required for this project |
+
+**Bottom line:** TransformerLens was for learning on GPT-2. Real CoT faithfulness research requires reasoning models like Qwen, which need nnsight.
+
+### Current Notebooks
+
+| Notebook | Status | Content |
+|----------|--------|---------|
+| `day3-4_first_probes.ipynb` | ✅ Complete | Sentiment probing, layer comparison, generalization testing |
+| `day5-6_advanced_techniques.ipynb` | ✅ Complete | Position analysis, attention heads, MLP probing |
+| `day8-9_nnsight_setup.ipynb` | 🔄 Current | nnsight setup, Qwen loading, activation extraction |
 
 ### Important Files
-- **Notebook:** `faithfulness_detection_with_probes_notebook.ipynb` (2.9MB)
-- **Guide:** `README.md` (40KB) - Complete project walkthrough with hour-by-hour breakdowns
-- **Dependencies:** TransformerLens, scikit-learn, nnsight (for reasoning models)
+- **Project Guide:** `mats_project_guide.md` - Comprehensive guide with key learnings section
+- **Setup Notebook:** `day8-9_nnsight_setup.ipynb` - nnsight/Qwen setup and verification
+- **Dependencies:** nnsight, transformers, scikit-learn (for Qwen work)
 
 ---
 
@@ -224,10 +258,10 @@ The notebook provides:
 - **ipykernel** - Jupyter kernel
 - **CUDA** - GPU acceleration (optional but recommended)
 
-### Optional Advanced Tools
-- **nnsight** - Accessing internals of reasoning models
-- **Gemini API** - Reasoning model CoT examples
-- **Qwen API** - Alternative reasoning models
+### For Reasoning Models (Current Focus)
+- **nnsight** - Primary tool for accessing internals of Qwen/Llama/etc.
+- **Qwen2.5-7B-Instruct** - Target reasoning model for CoT research
+- **Vast.ai** - Cloud GPU provider for running 7B models
 
 ---
 
@@ -309,30 +343,33 @@ The notebook provides:
 - 5GB storage
 
 ### Primary Execution Environment
-- **Google Colab** with GPU (T4 or better)
-- Alternative: RunPod, Vast.ai for longer experiments
-- Local Jupyter with GPU for iterative development
+- **Vast.ai** - For Qwen2.5-7B (needs 16GB+ VRAM, RTX 4090/A10/A100)
+- **Google Colab** - For smaller experiments with GPT-2
+- Local Jupyter - For code development and testing
 
 ---
 
 ## Recent Development Activity
 
-### Last 5 Commits (Nov 23, 2025)
-1. `code: refactored induction head detection code in the notebook` (main)
-2. `code: finished refactor of the previous token head detector code`
-3. `code: refactoring previous token head detection code`
-4. `code: Updating code for calculating and detecting induction heads`
-5. `refactor: Improved the code structure for previous token head detection`
+### Current Session (Dec 5, 2025)
+- Completed tutoring session on probe exercises (Day 3-6 notebooks)
+- Created `day8-9_nnsight_setup.ipynb` for Qwen/nnsight transition
+- Updated `mats_project_guide.md` with key learnings section
+- Documented conceptual corrections (layer information, MLP vs attention roles)
 
-**Focus:** Recent work has emphasized code quality and refactoring, particularly around induction head detection methodology.
+### Recent Focus Areas
+1. **Probe fundamentals:** Sentiment detection across layers, positions, components
+2. **Conceptual understanding:** Corrected misconceptions about transformer internals
+3. **Tool transition:** Moving from TransformerLens (GPT-2) to nnsight (Qwen)
+4. **Documentation:** Capturing learnings for future reference
 
 ### Git Status (Current)
 - Branch: main
-- Deleted: requirements.txt (replaced with requirements_old.txt)
-- Untracked:
-  - Mechanistic_Interpretability_Context_Documents/
-  - mech-interp-projects/
-  - requirements_old.txt
+- Active files in probe-based-faithfulness-detection/:
+  - day3-4_first_probes.ipynb
+  - day5-6_advanced_techniques.ipynb
+  - day8-9_nnsight_setup.ipynb (NEW)
+  - mats_project_guide.md (UPDATED)
 
 ---
 
@@ -370,7 +407,7 @@ tokens = model.to_tokens("Hello world")
 logits, cache = model.run_with_cache(tokens)
 ```
 
-### Probe Training Pattern
+### Probe Training Pattern (TransformerLens)
 ```python
 from sklearn.linear_model import LogisticRegression
 
@@ -383,6 +420,25 @@ probe.fit(activations, labels)
 
 # Evaluate
 accuracy = probe.score(test_activations, test_labels)
+```
+
+### Working with nnsight/Qwen (Current Focus)
+```python
+from nnsight import LanguageModel
+
+# Load model
+model = LanguageModel("Qwen/Qwen2.5-7B-Instruct", device_map="auto", torch_dtype=torch.float16)
+
+# Extract activations (different from TransformerLens!)
+with model.trace(text):
+    hidden = model.model.layers[layer].output[0].save()
+activation = hidden.value[0, -1, :].cpu().numpy()
+
+# Access different components
+with model.trace(text):
+    residual = model.model.layers[layer].output[0].save()      # Residual stream
+    mlp_out = model.model.layers[layer].mlp.output.save()       # MLP output
+    attn_out = model.model.layers[layer].self_attn.output[0].save()  # Attention output
 ```
 
 ---
@@ -529,13 +585,31 @@ accuracy = probe.score(test_activations, test_labels)
 
 ## Notes for Claude Code Sessions
 
-### Project State
-- **Active work:** Faithfulness detection (Weeks 1-2 preparation phase)
-- **Completed:** Induction heads, IOI circuit
-- **Recent focus:** Code refactoring and organization
+### Project State (Dec 5, 2025)
+- **Active work:** Faithfulness detection - Day 8-9 (nnsight/Qwen setup)
+- **Just completed:** Day 3-6 probe exercises with conceptual corrections
+- **Key deliverable:** `mats_project_guide.md` contains all learnings
+- **Next step:** Run day8-9 notebook on Vast.ai, then build CoT dataset
+
+### TransformerLens vs nnsight Quick Reference
+
+| Operation | TransformerLens | nnsight |
+|-----------|-----------------|---------|
+| Load model | `HookedTransformer.from_pretrained()` | `LanguageModel()` |
+| Residual stream | `cache["resid_post", layer]` | `model.model.layers[layer].output[0]` |
+| MLP output | `cache["blocks.{layer}.hook_mlp_out"]` | `model.model.layers[layer].mlp.output` |
+| Attention output | `cache["attn_out", layer]` | `model.model.layers[layer].self_attn.output[0]` |
+| Save values | Automatic | Explicit `.save()` required |
+
+### Key Conceptual Points (from tutoring)
+1. Later layers ≠ more information (different, not more)
+2. Attention routes information; MLP transforms information
+3. Last token position contaminated by output preparation
+4. Residual stream accumulates (doesn't overwrite)
+5. Individual attention heads can outperform full residual stream
 
 ### Preferred Workflow
-1. Understand context from relevant READMEs
+1. Understand context from relevant READMEs and `mats_project_guide.md`
 2. Work in Jupyter notebooks interactively
 3. Follow systematic research methodology (Explore → Understand → Distill)
 4. Maintain high code quality standards
@@ -557,3 +631,5 @@ accuracy = probe.score(test_activations, test_labels)
 ---
 
 *This context file is designed to help Claude Code instances get up to speed quickly on this mechanistic interpretability research codebase. For detailed information on specific projects, always refer to the individual README.md files in each project directory.*
+
+**For the faithfulness project specifically, see:** `mech-interp-projects/probe-based-faithfulness-detection/mats_project_guide.md`

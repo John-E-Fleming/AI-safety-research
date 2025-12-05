@@ -406,6 +406,152 @@ class ProbeToolkit:
 
 ---
 
+## Key Learnings from Probe Exercises (Days 3-6)
+
+This section captures critical conceptual corrections and insights from working through the sentiment probe exercises. **These are essential for the faithfulness project.**
+
+### Conceptual Corrections
+
+#### 1. "Later layers have more information" is WRONG
+
+**Incorrect framing:** Later layers contain more information because they've processed more.
+
+**Correct framing:** Later layers contain *different* information, not more. The residual stream preserves information from earlier layers. What changes is:
+- Early layers: syntax, local patterns, token-level features
+- Middle layers: semantic aggregation, concept formation
+- Late layers: output preparation, next-token prediction formatting
+
+**Implication for faithfulness:** Late layers might be *worse* for probing internal state because they're optimized for output, not for representing the model's "beliefs" or reasoning process.
+
+#### 2. MLPs and Attention serve different computational roles
+
+| Component | Function | What it does |
+|-----------|----------|--------------|
+| **Attention** | Route information between positions | "Where should I look?" |
+| **MLP** | Transform information within position | "What should I compute from what I see?" |
+
+**Key insight:** Both involve nonlinearity (attention has softmax, MLPs have GELU/ReLU). The distinction is *routing vs. computing*.
+
+**For faithfulness:**
+- If detecting faithfulness requires recognizing patterns ("this reasoning doesn't support this conclusion"), that likely happens in MLPs
+- If it requires connecting information across positions ("reasoning at position 10 contradicts answer at position 50"), that's attention's job
+
+#### 3. The residual stream accumulates, it doesn't get overwritten
+
+Each layer *adds* to the residual stream:
+```
+resid_post[layer] = resid_pre[layer] + attn_out[layer] + mlp_out[layer]
+```
+
+**Why MLP probes can be worse than residual stream probes:** The residual stream contains MLP output *plus* everything else. If the MLP isn't computing the feature you care about, its output is just noise for your probe.
+
+#### 4. Position matters because positions serve different computational roles
+
+**Observation from experiments:** Second-to-last token often outperforms last token for probing.
+
+**Why:** The last token position is where the model prepares next-token prediction. The residual stream there is being transformed toward logit computation—the model is "thinking about what to output" not "representing the sentence's meaning."
+
+**For faithfulness:** The position where the model "knows" something may not be the position where it's "acting on" that knowledge. Probe multiple positions.
+
+### Experimental Findings Summary
+
+#### Layer Comparison (Sentiment Detection)
+- **Best layers:** 10-11 (92.86% test accuracy)
+- **Earlier layers:** 85.71% (layers 0-8)
+- **Interpretation:** Sentiment is a high-level semantic feature that becomes linearly accessible in later layers after sufficient processing
+
+#### Position Comparison
+- **Second-to-last position:** 92.86% (best)
+- **Last position:** 85.71%
+- **Interpretation:** Last position is contaminated by output preparation; earlier positions maintain cleaner semantic representations
+
+#### Attention Head Analysis
+- **Key finding:** Middle layers (especially layer 6) have more heads useful for sentiment than late layers
+- **Specific heads:** Heads 3 and 6 at layer 6 achieved 100% test accuracy
+- **Interpretation:** Late-layer attention heads may be doing output formatting rather than semantic representation
+
+#### MLP vs Residual Stream
+- **Finding:** Residual stream ≥ MLP outputs across layers
+- **Best individual head probes > best residual stream probes**
+- **Interpretation:** Sentiment signal comes primarily from attention (aggregating lexical cues), not from MLP computation at these layers
+
+### Critical Questions for Faithfulness Research
+
+Based on these findings, the following questions become central:
+
+1. **Layer selection:** Is faithfulness information in middle layers (where internal reasoning might live) or late layers (where the model "decides" on output)?
+
+2. **Position selection:** Is faithfulness detectable at conclusion tokens, or distributed across the reasoning chain?
+
+3. **Component selection:** Is faithfulness computed (MLPs) or aggregated (attention)?
+
+4. **Generalization:** Does a faithfulness probe learn actual faithfulness, or spurious correlations like:
+   - Reasoning length
+   - Presence of "therefore"/"because"
+   - Formal vs. casual style
+   - Confidence phrases
+
+### Spurious Correlation Testing Framework
+
+**The core challenge:** High accuracy on test set ≠ learning the right concept.
+
+**Testing approach for any probe:**
+
+1. **Distribution shift test:** Train on style A, test on style B (same underlying concept)
+2. **Causal intervention test:** Create matched pairs that differ only on the spurious feature
+3. **Adversarial test:** Deliberately construct examples where spurious features conflict with true labels
+
+**Example for faithfulness:**
+
+| | Style A (Formal) | Style B (Casual) |
+|---|---|---|
+| **Faithful** | "Therefore, given premises P1 and P2, we conclude X." | "So basically P1 and P2 mean X." |
+| **Unfaithful** | "Therefore, given premises P1 and P2, we conclude Y." | "So basically P1 and P2 mean Y." |
+
+If probe accuracy drops across styles but within-style accuracy is high, probe learned style not faithfulness.
+
+### Hook Names Reference (TransformerLens)
+
+Correct hook names for different components:
+
+```python
+# Residual stream
+cache["resid_pre", layer]   # Before attention
+cache["resid_mid", layer]   # After attention, before MLP
+cache["resid_post", layer]  # After MLP (most common)
+
+# Attention
+cache["blocks.{layer}.attn.hook_q"]      # Query vectors
+cache["blocks.{layer}.attn.hook_k"]      # Key vectors
+cache["blocks.{layer}.attn.hook_v"]      # Value vectors
+cache["blocks.{layer}.attn.hook_z"]      # Head outputs (before W_O)
+cache["blocks.{layer}.attn.hook_pattern"] # Attention patterns (after softmax)
+cache["attn_out", layer]                  # Combined attention output (after W_O)
+
+# MLP
+cache["blocks.{layer}.hook_mlp_out"]     # MLP output
+```
+
+**Common mistake:** `hook_result` doesn't exist. Use `hook_z` for individual head outputs.
+
+### Revised Hypotheses for Faithfulness Project
+
+Based on probe exercise learnings:
+
+**H1 (Original):** Faithfulness detection works better at later layers (closer to output)
+**H1 (Revised):** Later layers may be *worse* because they're optimized for output generation. Test middle layers (where reasoning state might live) vs. late layers (where output is prepared).
+
+**H2 (Original):** Information concentrated at conclusion tokens ("therefore", "so")
+**H2 (Addition):** Also test second-to-last tokens and mean-pooling, since last/conclusion positions may be contaminated by output preparation.
+
+**H3 (Unchanged):** Probes generalize within task types but not across tasks
+
+**H4 (Unchanged):** Probes are vulnerable to adversarial stylistic changes
+
+**New hypothesis H5:** Individual attention heads may outperform residual stream probes for faithfulness, suggesting faithfulness detection is about information routing rather than computation.
+
+---
+
 ## Week 2: Advanced Practice (20-25 hours)
 
 ### Day 8-9: Reasoning Models (8-10 hours)
