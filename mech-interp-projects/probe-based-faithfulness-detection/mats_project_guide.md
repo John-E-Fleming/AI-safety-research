@@ -1,18 +1,22 @@
-# Personal Project 1: Faithfulness Detection with Probes
+# Personal Project 1: Tool Validation for Reasoning Model Interpretability
 
-**Project Goal:** Build deep probe expertise and execute a sophisticated 20-hour research project on CoT faithfulness detection.
+**Project Goal:** Investigate which interpretability tools (specifically probes) capture reasoning-relevant structure in CoT models, and characterize when they work or fail.
 
-**Timeline:** 4 weeks (Week 1-2: Foundation, Week 3: Prep, Week 4: Execution)
+**Timeline:** 4 weeks (Week 1-2: Foundation + Literature, Week 3: Experiments, Week 4: Validation + Write-up)
+
+**Framing:** Exploratory tool validation study (per Neel Nanda's guidance)
 
 ---
 
 ## Table of Contents
 
 - [Project Overview](#project-overview)
-- [Week 1: Foundations](#week-1-foundations-20-25-hours)
-- [Week 2: Advanced Practice](#week-2-advanced-practice-20-25-hours)
-- [Week 3: Final Prep](#week-3-final-prep-15-20-hours)
-- [Week 4: Execution](#week-4-execution-22-hours)
+- [Literature Context](#literature-context)
+- [Research Questions](#research-questions)
+- [Week 1: Foundations](#week-1-foundations-completed)
+- [Week 2: Literature Integration & Dataset](#week-2-literature-integration--dataset)
+- [Week 3: Core Experiments](#week-3-core-experiments)
+- [Week 4: Validation & Write-up](#week-4-validation--write-up)
 - [Code Templates](#code-templates)
 - [Troubleshooting](#troubleshooting)
 - [Success Criteria](#success-criteria)
@@ -21,1346 +25,683 @@
 
 ## Project Overview
 
+### Project Reframe (Dec 8, 2025)
+
+This project has been reframed from hypothesis-driven ("Can probes detect unfaithful CoT?") to **exploratory/tool-validating** ("What questions can we ask about reasoning models, and do probes actually work for them?").
+
+**Why the reframe:**
+- More achievable in 20 hours
+- More likely to produce publishable findings (negative results count)
+- Better aligned with where the field actually is
+- Matches Neel Nanda's suggestion for mini-projects: "ask questions about reasoning model behavior and see which tools do and do not work"
+
 ### Main Research Question
-"What fundamental properties determine when probes can detect unfaithful CoT, and when do they fail?"
+
+**"Which interpretability tools capture reasoning-relevant structure in CoT models? A probe-focused investigation."**
+
+This framing lets us:
+1. Ask concrete behavioral questions about reasoning models
+2. Test whether probes can answer them
+3. Report honestly on what works and what doesn't
+4. Contribute to the field regardless of whether results are positive or negative
 
 ### Why This Project
+
 - Builds foundational skills for AI control work
 - Demonstrates depth over breadth (values mastery of technique)
 - Practical implications for model monitoring
-
-### Key Hypotheses
-1. **H1:** Faithfulness detection works better at later layers (closer to output)
-2. **H2:** Information is concentrated at conclusion words ("therefore", "so")
-3. **H3:** Probes generalize within task types but not across
-4. **H4:** Probes are vulnerable to adversarial stylistic changes
+- **Fills a gap:** Resampling, SAEs, and steering vectors are validated for reasoning models; **probes are untested**
 
 ### Success Looks Like
-- Clear finding about when/why probes work or fail
-- Systematic comparison (layers, positions, tasks)
+
+- Clear characterization of when/why probes work or fail for reasoning models
+- Systematic comparison (layers, positions, sentence types)
 - Honest assessment of limitations
-- Practical recommendations for AI control applications
+- Practical recommendations for which tools to use when
+- **Valuable whether results are positive, negative, or mixed**
 
 ---
 
-## Week 1: Foundations (20-25 hours)
+## Literature Context
 
-### Day 1-2: Setup & Transformer Basics (6-8 hours)
+### The State of the Field
 
-#### Environment Setup (2-3 hours)
+Three recent papers establish what we know about interpreting reasoning models:
 
-```bash
-# Create environment
-python -m venv mech_interp_env
-source mech_interp_env/bin/activate
+| Paper | Key Finding | Tool Validated |
+|-------|-------------|----------------|
+| Thought Anchors (Bogdan et al., 2025) | Plan generation has HIGH causal importance; computation has LOW importance | Resampling |
+| Thought Branches (Macar & Bogdan et al., 2025) | Unfaithfulness is "nudged reasoning" — subtle, diffuse, cumulative | Resampling + Resilience |
+| Base Models Know How (Venhoff et al., 2025) | Reasoning mechanisms are linearly steerable; 91% gap recovery | SAEs + Steering Vectors |
 
-# Install packages
-pip install transformer-lens torch numpy pandas matplotlib scikit-learn
-pip install jupyter ipykernel datasets transformers accelerate
-
-# Test installation
-python -c "import transformer_lens; print('Success!')"
-```
-
-#### GPU Setup
-
-```python
-# Test on RunPod/Vast.ai
-import torch
-print(f"CUDA available: {torch.cuda.is_available()}")
-print(f"GPU: {torch.cuda.get_device_name(0)}")
-```
-
-#### First Model Interaction (2-3 hours)
-
-```python
-import transformer_lens as tl
-
-# Load model
-model = tl.HookedTransformer.from_pretrained("gpt2-small")
-
-# Extract activations
-prompt = "The capital of France is"
-logits, cache = model.run_with_cache(prompt)
-
-# Get layer 6 activations
-layer_6_acts = cache["resid_post", 6]
-print(f"Shape: {layer_6_acts.shape}")  # [1, num_tokens, d_model]
-
-# Check predictions
-top_tokens = logits[0, -1].topk(5)
-for i in range(5):
-    token_id = top_tokens.indices[i]
-    token = model.tokenizer.decode(token_id)
-    print(f"{token}")
-```
-
-**Self-check questions:**
-- What is the residual stream?
-- Why can we probe any layer's activations?
-- How do activations flow through a transformer?
-
-#### ARENA Tutorial (4-5 hours)
-
-**Complete:** Sections 1.2.1-1.2.3 only
-- 1.2.1: Transform from/to tokens
-- 1.2.2: Tokenization
-- 1.2.3: Direct Logit Attribution
-
-**Skip:** 1.2.4 (circuit analysis not needed yet)
-
-**Key concept to master:**
-
-```python
-# The residual stream carries information through layers
-prompt = "When Mary and John went to the store, John gave a drink to"
-logits, cache = model.run_with_cache(prompt)
-
-# What is layer 6 "thinking" about next token?
-layer_6_output = cache["resid_post", 6]
-layer_6_logits = model.unembed(model.ln_final(layer_6_output))
-
-# This is "logit lens" - seeing intermediate predictions
-```
+**The gap:** Nobody has shown that linear probes work for faithfulness detection in reasoning models. That's what this project investigates.
 
 ---
 
-### Day 3-4: First Probes (8-10 hours)
+### Paper 1: Thought Anchors (Bogdan et al., 2025)
 
-#### Conceptual Understanding (2-3 hours)
+**Full title:** "Thought Anchors: Which LLM Reasoning Steps Matter?"
 
-**What is a probe?**
-- Logistic regression on activations
-- Learns a direction in activation space
-- Weight vector = the direction that separates classes
+**Core methodology:**
+- Black-box resampling: Remove sentence i, resample 100x, measure impact on final answer distribution
+- Counterfactual importance: DKL[p(A'_Si | Ti ≠ Si) || p(A_Si)]
+- Receiver head analysis: Attention heads that narrow focus on specific sentences
 
-**When do probes work?**
-- When information is linearly accessible
-- When concept is represented as a direction
-- When training data represents the concept well
+**Critical findings:**
+1. **Plan generation and uncertainty management sentences have HIGHEST counterfactual importance**
+2. **Active computation sentences have LOWER importance** (often overdetermined by context)
+3. Receiver heads (later layers) consistently attend to same "thought anchor" sentences
+4. Mathematical domains show stronger close-range sentence dependencies
 
-**When do probes fail?**
-- Non-linear representations
-- Information spread across positions
-- Overfitting to spurious correlations
-- Distribution shift between train/test
+**8-Category Sentence Taxonomy:**
 
-#### Sentiment Probe (2 hours)
+| Category | Description | Importance |
+|----------|-------------|------------|
+| Problem Setup | Parsing, rephrasing problem | Low |
+| Plan Generation | Stating plans, meta-reasoning | **HIGH** |
+| Fact Retrieval | Recalling formulas without computation | Medium |
+| Active Computation | Algebra, calculations | **LOW** |
+| Uncertainty Management | Confusion, backtracking | **HIGH** |
+| Result Consolidation | Aggregating results | Medium |
+| Self Checking | Verification | Medium |
+| Final Answer Emission | Stating answer | Low |
 
-```python
-import numpy as np
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report
-
-# Create dataset
-positive_sentences = [
-    "I love this movie!",
-    "This is amazing and wonderful!",
-    "Great job, fantastic work!",
-    # Add 20+ more
-]
-
-negative_sentences = [
-    "I hate this movie.",
-    "This is terrible and awful.",
-    "Poor job, disappointing work.",
-    # Add 20+ more
-]
-
-# Extract activations
-def get_final_token_activation(model, sentences, layer=6):
-    """Get activation of final token at specified layer"""
-    activations = []
-    for sentence in sentences:
-        _, cache = model.run_with_cache(sentence)
-        final_act = cache["resid_post", layer][0, -1, :].cpu().numpy()
-        activations.append(final_act)
-    return np.array(activations)
-
-X_pos = get_final_token_activation(model, positive_sentences)
-X_neg = get_final_token_activation(model, negative_sentences)
-
-# Combine
-X = np.vstack([X_pos, X_neg])
-y = np.array([1]*len(positive_sentences) + [0]*len(negative_sentences))
-
-# Train/test split
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.3, random_state=42, stratify=y
-)
-
-# Train probe
-probe = LogisticRegression(max_iter=1000, random_state=42)
-probe.fit(X_train, y_train)
-
-# Evaluate
-train_acc = probe.score(X_train, y_train)
-test_acc = probe.score(X_test, y_test)
-
-print(f"Train accuracy: {train_acc:.2%}")
-print(f"Test accuracy: {test_acc:.2%}")
-```
-
-**Success criteria:**
-- Test accuracy >70%
-- Train/test gap <15%
-
-#### Multi-Layer Comparison (2 hours)
-
-```python
-# Test which layer has best information
-layers_to_test = [0, 3, 6, 9, 11]
-results = []
-
-for layer in layers_to_test:
-    X_pos = get_final_token_activation(model, positive_sentences, layer=layer)
-    X_neg = get_final_token_activation(model, negative_sentences, layer=layer)
-    X = np.vstack([X_pos, X_neg])
-    y = np.array([1]*len(positive_sentences) + [0]*len(negative_sentences))
-    
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, random_state=42, stratify=y
-    )
-    
-    probe = LogisticRegression(max_iter=1000)
-    probe.fit(X_train, y_train)
-    test_acc = probe.score(X_test, y_test)
-    
-    results.append((layer, test_acc))
-    print(f"Layer {layer}: {test_acc:.2%}")
-
-# Plot
-import matplotlib.pyplot as plt
-layers, accs = zip(*results)
-plt.plot(layers, accs, marker='o')
-plt.xlabel('Layer')
-plt.ylabel('Test Accuracy')
-plt.title('Sentiment Detection Accuracy by Layer')
-plt.savefig('layer_comparison.png')
-```
-
-#### Generalization Testing (2-3 hours)
-
-```python
-# Test on very different distribution
-different_positive = [
-    "Absolutely delightful experience today",
-    "Couldn't be happier with the outcome",
-    # Add 10+ more with different style
-]
-
-different_negative = [
-    "Utterly disappointing and frustrating",
-    "Completely unsatisfactory results",
-    # Add 10+ more
-]
-
-# Test generalization
-X_diff_pos = get_final_token_activation(model, different_positive, layer=6)
-X_diff_neg = get_final_token_activation(model, different_negative, layer=6)
-X_diff = np.vstack([X_diff_pos, X_diff_neg])
-y_diff = np.array([1]*len(different_positive) + [0]*len(different_negative))
-
-diff_acc = probe.score(X_diff, y_diff)
-print(f"Different distribution accuracy: {diff_acc:.2%}")
-```
-
-**Critical questions to answer:**
-1. Why might probe get 90% on test set but 60% on different distribution?
-2. What could cause high train accuracy but low test accuracy?
-3. How would you test if probe detects sentiment vs sentence length?
+**Key implication for probes:** Don't probe at computation tokens — they're overdetermined. Probe at plan generation and uncertainty management positions.
 
 ---
 
-### Day 5-6: Advanced Techniques (6-8 hours)
+### Paper 2: Thought Branches (Macar & Bogdan et al., 2025)
 
-#### Token Position Analysis (2-3 hours)
+**Full title:** "Thought Branches: Interpreting LLM Reasoning Requires Resampling"
 
-```python
-def get_all_token_activations(model, sentences, layer=6):
-    """Get activations for ALL tokens"""
-    all_activations = []
-    for sentence in sentences:
-        _, cache = model.run_with_cache(sentence)
-        acts = cache["resid_post", layer][0, :, :].cpu().numpy()
-        all_activations.append(acts)
-    return all_activations
+**New concepts introduced:**
 
-def extract_features(activations, method='last'):
-    """Extract features from token sequence"""
-    features = []
-    for acts in activations:
-        if method == 'last':
-            features.append(acts[-1])
-        elif method == 'first':
-            features.append(acts[0])
-        elif method == 'mean':
-            features.append(acts.mean(axis=0))
-        elif method == 'max':
-            features.append(acts.max(axis=0))
-    return np.array(features)
+**Resilience:** How many times you must intervene before a sentence's semantic content stops reappearing downstream. Reasoning models often regenerate removed content through error correction.
 
-# Compare methods
-methods = ['last', 'first', 'mean', 'max']
-for method in methods:
-    X_pos = extract_features(
-        get_all_token_activations(model, positive_sentences), 
-        method
-    )
-    X_neg = extract_features(
-        get_all_token_activations(model, negative_sentences), 
-        method
-    )
-    # ... train and evaluate
-    print(f"{method}: {test_acc:.2%}")
+**Counterfactual++ Importance:** Only counts rollouts where target sentence's content never reappears anywhere:
+```
+importance++(Si) = DKL[p(A'|∀j≥i: Tj ≉ Si) || p(A|Si)]
 ```
 
-#### Attention Head Probes (3-4 hours)
+**Critical findings on self-preservation:**
+- Self-preservation statements show **lowest resilience** (~1-4 iterations before abandonment)
+- They have **negligible counterfactual++ importance** (~0.001-0.003 KL divergence)
+- **Conclusion:** These are post-hoc rationalizations, not causal drivers
 
-```python
-def get_attention_head_output(model, sentences, layer=6, head=0):
-    """Extract output from specific attention head"""
-    activations = []
-    for sentence in sentences:
-        _, cache = model.run_with_cache(sentence)
-        # Shape: [batch, pos, n_heads, d_head]
-        head_output = cache[f"blocks.{layer}.attn.hook_result"]
-        head_act = head_output[0, -1, head, :].cpu().numpy()
-        activations.append(head_act)
-    return np.array(activations)
+**On-policy vs Off-policy interventions:**
 
-# Test different heads
-for head in range(12):  # GPT-2 has 12 heads
-    X_pos = get_attention_head_output(model, positive_sentences, layer=6, head=head)
-    X_neg = get_attention_head_output(model, negative_sentences, layer=6, head=head)
-    # Train and evaluate
-    print(f"Head {head}: {test_acc:.2%}")
-```
+| Intervention Type | Effect |
+|-------------------|--------|
+| Handwritten edits | Near zero effect |
+| Cross-model sentences | Small, unstable changes |
+| Same-model, different context | Small changes |
+| **On-policy resampling** | Large, directional effects |
 
-#### Probe Toolkit (Day 7, 3-4 hours)
+**Key implication:** Don't hand-edit CoTs to create unfaithful examples. Use naturalistic methods (hints) instead.
 
-```python
-class ProbeToolkit:
-    """Reusable toolkit for probe experiments"""
-    
-    def __init__(self, model):
-        self.model = model
-        
-    def extract_activations(self, sentences, layer, position='last', component='residual'):
-        """Flexible activation extraction"""
-        activations = []
-        for sentence in sentences:
-            _, cache = self.model.run_with_cache(sentence)
-            
-            if component == 'residual':
-                acts = cache["resid_post", layer][0, :, :].cpu().numpy()
-            elif component == 'mlp':
-                acts = cache[f"blocks.{layer}.hook_mlp_out"][0, :, :].cpu().numpy()
-            
-            # Extract position
-            if position == 'last':
-                act = acts[-1]
-            elif position == 'mean':
-                act = acts.mean(axis=0)
-            
-            activations.append(act)
-        return np.array(activations)
-    
-    def train_probe(self, X_pos, X_neg, test_size=0.3):
-        """Train probe with proper train/test split"""
-        X = np.vstack([X_pos, X_neg])
-        y = np.array([1]*len(X_pos) + [0]*len(X_neg))
-        
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=42, stratify=y
-        )
-        
-        probe = LogisticRegression(max_iter=1000, random_state=42)
-        probe.fit(X_train, y_train)
-        
-        return {
-            'probe': probe,
-            'train_acc': probe.score(X_train, y_train),
-            'test_acc': probe.score(X_test, y_test),
-            'X_test': X_test,
-            'y_test': y_test
-        }
-    
-    def systematic_comparison(self, pos_sentences, neg_sentences, 
-                            layers=[0,3,6,9,11], positions=['last', 'mean']):
-        """Compare probes across configurations"""
-        results = []
-        for layer in layers:
-            for position in positions:
-                X_pos = self.extract_activations(pos_sentences, layer, position)
-                X_neg = self.extract_activations(neg_sentences, layer, position)
-                probe_results = self.train_probe(X_pos, X_neg)
-                results.append({
-                    'layer': layer,
-                    'position': position,
-                    'test_acc': probe_results['test_acc']
-                })
-        return results
-```
+**"Nudged Reasoning" Framework:**
+
+Unfaithfulness is NOT discrete lies. It's subtle, diffuse, cumulative bias:
+1. **Subtle** — biased reasoning doesn't immediately trigger backtracking
+2. **Diffuse** — no single sentence is the "lie"; bias accumulates gradually
+3. **Cumulative** — many small biased decisions compound
+
+The hint influences: which facts to recall, how to frame information, whether to backtrack (token "Wait" appears 30% less often when hinted).
+
+**Key implication for probes:** You're not looking for binary "lying vs truthful" signal. You're looking for subtle distributional shifts across the trace.
 
 ---
 
-## Key Learnings from Probe Exercises (Days 3-6)
+### Paper 3: Base Models Know How to Reason (Venhoff et al., 2025)
 
-This section captures critical conceptual corrections and insights from working through the sentiment probe exercises. **These are essential for the faithfulness project.**
+**Full title:** "Base Models Know How to Reason, Thinking Models Learn When"
 
-### Conceptual Corrections
+**Core claim:** Thinking models learn *when* to deploy reasoning mechanisms, not *how* to reason. Base models already contain latent capacity; RLVR teaches timing.
 
-#### 1. "Later layers have more information" is WRONG
+**Evidence — Hybrid Model:**
+1. Use SAEs to discover taxonomy of 10-25 reasoning mechanisms (sentence-level)
+2. Train steering vectors in base models that induce each mechanism
+3. Let thinking model's SAE classifier decide *when* to apply each vector
+4. **Result: 91% gap recovery on MATH500 while steering only 12% of tokens**
 
-**Incorrect framing:** Later layers contain more information because they've processed more.
+**Ablation results (Qwen2.5-32B + QwQ-32B on MATH500):**
 
-**Correct framing:** Later layers contain *different* information, not more. The residual stream preserves information from earlier layers. What changes is:
-- Early layers: syntax, local patterns, token-level features
-- Middle layers: semantic aggregation, concept formation
-- Late layers: output preparation, next-token prediction formatting
+| Condition | Accuracy | Interpretation |
+|-----------|----------|----------------|
+| Base model | 63.4% | Baseline |
+| Full hybrid | 84.4% | Best performance |
+| Only-bias (no category steering) | 76.8% | Style helps but insufficient |
+| Random-firing (wrong timing) | 77.8% | **Timing matters** |
+| Random-vectors (wrong directions) | 77.2% | **Directions matter** |
 
-**Implication for faithfulness:** Late layers might be *worse* for probing internal state because they're optimized for output, not for representing the model's "beliefs" or reasoning process.
-
-#### 2. MLPs and Attention serve different computational roles
-
-| Component | Function | What it does |
-|-----------|----------|--------------|
-| **Attention** | Route information between positions | "Where should I look?" |
-| **MLP** | Transform information within position | "What should I compute from what I see?" |
-
-**Key insight:** Both involve nonlinearity (attention has softmax, MLPs have GELU/ReLU). The distinction is *routing vs. computing*.
-
-**For faithfulness:**
-- If detecting faithfulness requires recognizing patterns ("this reasoning doesn't support this conclusion"), that likely happens in MLPs
-- If it requires connecting information across positions ("reasoning at position 10 contradicts answer at position 50"), that's attention's job
-
-#### 3. The residual stream accumulates, it doesn't get overwritten
-
-Each layer *adds* to the residual stream:
-```
-resid_post[layer] = resid_pre[layer] + attn_out[layer] + mlp_out[layer]
-```
-
-**Why MLP probes can be worse than residual stream probes:** The residual stream contains MLP output *plus* everything else. If the MLP isn't computing the feature you care about, its output is just noise for your probe.
-
-#### 4. Position matters because positions serve different computational roles
-
-**Observation from experiments:** Second-to-last token often outperforms last token for probing.
-
-**Why:** The last token position is where the model prepares next-token prediction. The residual stream there is being transformed toward logit computation—the model is "thinking about what to output" not "representing the sentence's meaning."
-
-**For faithfulness:** The position where the model "knows" something may not be the position where it's "acting on" that knowledge. Probe multiple positions.
-
-### Experimental Findings Summary
-
-#### Layer Comparison (Sentiment Detection)
-- **Best layers:** 10-11 (92.86% test accuracy)
-- **Earlier layers:** 85.71% (layers 0-8)
-- **Interpretation:** Sentiment is a high-level semantic feature that becomes linearly accessible in later layers after sufficient processing
-
-#### Position Comparison
-- **Second-to-last position:** 92.86% (best)
-- **Last position:** 85.71%
-- **Interpretation:** Last position is contaminated by output preparation; earlier positions maintain cleaner semantic representations
-
-#### Attention Head Analysis
-- **Key finding:** Middle layers (especially layer 6) have more heads useful for sentiment than late layers
-- **Specific heads:** Heads 3 and 6 at layer 6 achieved 100% test accuracy
-- **Interpretation:** Late-layer attention heads may be doing output formatting rather than semantic representation
-
-#### MLP vs Residual Stream
-- **Finding:** Residual stream ≥ MLP outputs across layers
-- **Best individual head probes > best residual stream probes**
-- **Interpretation:** Sentiment signal comes primarily from attention (aggregating lexical cues), not from MLP computation at these layers
-
-### Critical Questions for Faithfulness Research
-
-Based on these findings, the following questions become central:
-
-1. **Layer selection:** Is faithfulness information in middle layers (where internal reasoning might live) or late layers (where the model "decides" on output)?
-
-2. **Position selection:** Is faithfulness detectable at conclusion tokens, or distributed across the reasoning chain?
-
-3. **Component selection:** Is faithfulness computed (MLPs) or aggregated (attention)?
-
-4. **Generalization:** Does a faithfulness probe learn actual faithfulness, or spurious correlations like:
-   - Reasoning length
-   - Presence of "therefore"/"because"
-   - Formal vs. casual style
-   - Confidence phrases
-
-### Spurious Correlation Testing Framework
-
-**The core challenge:** High accuracy on test set ≠ learning the right concept.
-
-**Testing approach for any probe:**
-
-1. **Distribution shift test:** Train on style A, test on style B (same underlying concept)
-2. **Causal intervention test:** Create matched pairs that differ only on the spurious feature
-3. **Adversarial test:** Deliberately construct examples where spurious features conflict with true labels
-
-**Example for faithfulness:**
-
-| | Style A (Formal) | Style B (Casual) |
-|---|---|---|
-| **Faithful** | "Therefore, given premises P1 and P2, we conclude X." | "So basically P1 and P2 mean X." |
-| **Unfaithful** | "Therefore, given premises P1 and P2, we conclude Y." | "So basically P1 and P2 mean Y." |
-
-If probe accuracy drops across styles but within-style accuracy is high, probe learned style not faithfulness.
-
-### Hook Names Reference (TransformerLens)
-
-Correct hook names for different components:
-
-```python
-# Residual stream
-cache["resid_pre", layer]   # Before attention
-cache["resid_mid", layer]   # After attention, before MLP
-cache["resid_post", layer]  # After MLP (most common)
-
-# Attention
-cache["blocks.{layer}.attn.hook_q"]      # Query vectors
-cache["blocks.{layer}.attn.hook_k"]      # Key vectors
-cache["blocks.{layer}.attn.hook_v"]      # Value vectors
-cache["blocks.{layer}.attn.hook_z"]      # Head outputs (before W_O)
-cache["blocks.{layer}.attn.hook_pattern"] # Attention patterns (after softmax)
-cache["attn_out", layer]                  # Combined attention output (after W_O)
-
-# MLP
-cache["blocks.{layer}.hook_mlp_out"]     # MLP output
-```
-
-**Common mistake:** `hook_result` doesn't exist. Use `hook_z` for individual head outputs.
-
-### Revised Hypotheses for Faithfulness Project
-
-Based on probe exercise learnings:
-
-**H1 (Original):** Faithfulness detection works better at later layers (closer to output)
-**H1 (Revised):** Later layers may be *worse* because they're optimized for output generation. Test middle layers (where reasoning state might live) vs. late layers (where output is prepared).
-
-**H2 (Original):** Information concentrated at conclusion tokens ("therefore", "so")
-**H2 (Addition):** Also test second-to-last tokens and mean-pooling, since last/conclusion positions may be contaminated by output preparation.
-
-**H3 (Unchanged):** Probes generalize within task types but not across tasks
-
-**H4 (Unchanged):** Probes are vulnerable to adversarial stylistic changes
-
-**New hypothesis H5:** Individual attention heads may outperform residual stream probes for faithfulness, suggesting faithfulness detection is about information routing rather than computation.
+**Key implications:**
+1. Reasoning mechanisms are **linearly steerable** — supports linear representation hypothesis underlying probing
+2. 10-25 categories is tractable for probe training
+3. Steering works best at ~37% of model depth — test middle layers for probes
 
 ---
 
-## Week 2: Advanced Practice (20-25 hours)
+### Synthesis: What These Papers Tell Us
 
-### Day 8-9: Reasoning Models (8-10 hours)
+**The emerging picture:**
 
-#### Setup Qwen with nnsight (2-3 hours)
+| Dimension | Finding | Source |
+|-----------|---------|--------|
+| What matters | Plan generation, uncertainty management — NOT computation | Thought Anchors |
+| How unfaithfulness manifests | Nudged reasoning — subtle, diffuse, cumulative | Thought Branches |
+| Are mechanisms linear? | Yes — 91% recovery with steering vectors | Venhoff et al. |
 
-```python
-from nnsight import LanguageModel
-import torch
+**Critical tension with earlier findings:**
 
-# Load model on GPU
-model = LanguageModel(
-    "Qwen/Qwen2.5-7B-Instruct",
-    device_map="auto",
-    torch_dtype=torch.float16
-)
+Your activation norm analysis found: Mathematical tokens show HIGHER activation norms
+Thought Anchors shows: Active computation has LOWER counterfactual importance
 
-# Generate with access to internals
-prompt = "What is 17 * 23? Think step by step."
-
-with model.generate(max_new_tokens=300) as generator:
-    with generator.invoke(prompt) as invoker:
-        # Access hidden states during generation
-        hidden_states = model.model.layers[15].output[0].save()
-
-output_text = model.tokenizer.decode(generator.output[0])
-print(output_text)
-
-# Access saved activations
-acts = hidden_states.value
-print(f"Shape: {acts.shape}")
-```
-
-#### Alternative: Gemini API (simpler)
-
-```python
-import google.generativeai as genai
-
-genai.configure(api_key='your-api-key')
-model = genai.GenerativeModel('gemini-2.0-flash-thinking-exp')
-
-response = model.generate_content(
-    "What is 47 * 83? Think step by step.",
-    generation_config={
-        'temperature': 1.0,
-        'max_output_tokens': 1000,
-    }
-)
-
-print(response.text)
-```
-
-#### Understanding CoT Structure (3-4 hours)
-
-Create a reasoning anatomy document:
-
-```
-Typical CoT structure:
-1. Problem restatement (0-2 sentences)
-2. Reasoning steps (3-10 sentences)
-   - Markers: "First", "Then", "Next", "Now"
-3. Conclusion (1-2 sentences)
-   - Markers: "Therefore", "So", "Thus"
-4. Final answer
-
-Key tokens:
-- Reasoning: "First", "Then", "Next", "Because"
-- Conclusion: "Therefore", "So", "Thus"
-- Uncertainty: "Maybe", "Possibly", "Might"
-- Correction: "Wait", "Actually", "No"
-```
-
-#### Build CoT Dataset (3-4 hours)
-
-```python
-def create_math_cot_dataset(n=100):
-    """Create dataset of math problems with reasoning"""
-    dataset = []
-    
-    for i in range(n):
-        a, b = random.randint(10, 99), random.randint(2, 9)
-        problem = f"What is {a} * {b}? Think step by step."
-        
-        # Get model response
-        response = generate_with_cot(problem)
-        
-        # Check correctness
-        correct_answer = a * b
-        got_it_right = str(correct_answer) in response
-        
-        dataset.append({
-            'problem': problem,
-            'response': response,
-            'correct_answer': correct_answer,
-            'success': got_it_right
-        })
-    
-    return dataset
-```
+**Interpretation:** High activation norm ≠ high causal importance. Computation may be predetermined by earlier planning. This motivates testing whether *directions* (probes) do better than *magnitudes* (norms).
 
 ---
 
-### Day 10-12: Practice Project #1 (8-10 hours)
+## Research Questions
 
-**Project:** "Multi-layer question detection with failure mode analysis"
+### Primary Question
 
-```python
-# Hour 1-2: Data collection
-questions = [
-    "What is the capital of France?",
-    "How does photosynthesis work?",
-    # Add 40+ more
-]
+**"Which interpretability tools capture reasoning-relevant structure in CoT models?"**
 
-statements = [
-    "The capital of France is Paris.",
-    "Photosynthesis converts light into energy.",
-    # Add 40+ more
-]
+### Specific Questions to Investigate
 
-# Hour 3-4: Multi-layer training
-toolkit = ProbeToolkit(model)
+#### Q1: Do activation patterns distinguish sentence types?
 
-results = toolkit.systematic_comparison(
-    questions, statements,
-    layers=[0, 3, 6, 9, 11],
-    positions=['last', 'mean']
-)
+**Background:** Thought Anchors shows sentence types have different causal importance. Venhoff shows SAEs can cluster sentence types. Can probes classify them?
 
-# Plot results
-import pandas as pd
-import seaborn as sns
+**Method:**
+1. Annotate ~50-100 CoTs with 8-category taxonomy
+2. Extract sentence-averaged activations at each sentence
+3. Train multi-class probe to classify sentence type
+4. Test generalization to held-out problems
 
-df = pd.DataFrame(results)
-pivot = df.pivot(index='layer', columns='position', values='test_acc')
-sns.heatmap(pivot, annot=True, fmt='.2%', cmap='viridis')
-plt.title('Question Detection Accuracy')
-plt.savefig('question_detection.png')
+**Success criterion:** >70% accuracy, generalizes across problems
 
-# Hour 5-6: Generalization testing
-different_questions = [
-    "I wonder what the capital of France might be?",
-    # Different syntax, same semantics
-]
-
-# Hour 7-8: Failure mode analysis
-ambiguous = [
-    "What if the capital of France changed?",
-    "The capital of France is what?",
-]
-
-# Test on edge cases, document failures
-
-# Hour 9: Write-up (2 pages)
-# Hour 10: Executive summary (1 page)
-```
+**What we learn:**
+- If YES: Sentence types have consistent linear representations
+- If NO: Reasoning mechanisms may not be linearly separable (bad news for probes)
 
 ---
 
-### Day 13-14: Practice Project #2 (6-8 hours)
+#### Q2: Do probes trained on sentence type generalize?
 
-**Project:** "What token positions contain sentiment information?"
+**Background:** H3 predicts probes generalize within task types but not across.
 
-```python
-def probe_specific_position(sentences_pos, sentences_neg, token_position):
-    """Probe activations at specific token position"""
-    X_pos = []
-    X_neg = []
-    
-    for sent in sentences_pos:
-        _, cache = model.run_with_cache(sent)
-        tokens = model.tokenizer.encode(sent)
-        if token_position < len(tokens):
-            act = cache["resid_post", 6][0, token_position, :].cpu().numpy()
-            X_pos.append(act)
-    
-    # Repeat for negative
-    # Train probe, return accuracy
+**Method:**
+1. Train probe on GSM8K CoTs
+2. Test on: (a) held-out GSM8K, (b) MATH500, (c) different domain entirely
+3. Measure accuracy drop
 
-# Test all positions (0 to max_length)
-# Create heatmap showing where information lives
-```
+**Success criterion:** <15% accuracy drop within domain; expect larger drop across domains
+
+**What we learn:**
+- Characterizes the boundaries of probe applicability
+- Informs whether domain-specific or general probes are needed
 
 ---
 
-## Week 3: Final Prep (15-20 hours)
+#### Q3: Can probes detect "hint influence"?
 
-### Day 15-16: Data & Tools (8-10 hours)
+**Background:** Thought Branches shows hints bias CoT without being mentioned (unfaithfulness).
 
-#### Get CoT Faithfulness Dataset (3-4 hours)
+**Method:**
+1. Generate CoT pairs: same problem with/without hint (using their professor hint methodology)
+2. Identify cases where hint changes answer but isn't mentioned
+3. Train binary probe: hinted vs unhinted
+4. Test on held-out examples
 
-**Option 1:** Arcuschin et al's dataset
+**Success criterion:** Above-chance discrimination
 
-```bash
-git clone https://github.com/username/faithful-cot-analysis
-# Explore their examples of:
-# - Rationalization
-# - Hint influence
-# - Answer flipping
-```
-
-**Option 2:** Build focused dataset
-
-```python
-def create_faithfulness_dataset():
-    """Create clear faithful/unfaithful examples"""
-    
-    faithful = []
-    unfaithful = []
-    
-    # Faithful: reasoning matches answer
-    math_problems = [
-        "What is 15 * 7?",
-        "If x + 8 = 20, what is x?",
-    ]
-    
-    # Generate and verify reasoning is sound
-    
-    # Unfaithful: use hints to encourage cheating
-    unfaithful_prompts = [
-        "What is 15 * 7? (Hint: the answer is 104) Show reasoning.",
-    ]
-    
-    return faithful, unfaithful
-```
-
-**Spend time understanding:**
-- Read 20-30 examples manually
-- Categorize types of unfaithfulness
-- Note what makes reasoning unfaithful
-
-#### Pre-build Analysis Tools (3-4 hours)
-
-```python
-class CoTProbeAnalyzer:
-    """Tools for analyzing CoT with probes"""
-    
-    def __init__(self, model):
-        self.model = model
-        
-    def extract_cot_activations(self, text, layer=15):
-        """Extract activations throughout CoT"""
-        _, cache = self.model.run_with_cache(text)
-        acts = cache["resid_post", layer][0, :, :].cpu().numpy()
-        
-        tokens = self.model.tokenizer.encode(text)
-        token_strs = [self.model.tokenizer.decode([t]) for t in tokens]
-        
-        return acts, token_strs
-    
-    def find_reasoning_markers(self, text):
-        """Find positions of key reasoning words"""
-        tokens = self.model.tokenizer.encode(text)
-        token_strs = [self.model.tokenizer.decode([t]) for t in tokens]
-        
-        markers = {
-            'reasoning': ['first', 'then', 'next', 'because'],
-            'conclusion': ['therefore', 'so', 'thus'],
-            'uncertainty': ['maybe', 'possibly', 'might'],
-            'correction': ['wait', 'actually', 'no']
-        }
-        
-        positions = {k: [] for k in markers}
-        for i, token in enumerate(token_strs):
-            for marker_type, words in markers.items():
-                if any(word in token.lower() for word in words):
-                    positions[marker_type].append(i)
-        
-        return positions
-```
-
-#### Test Pipeline End-to-End (4-5 hours)
-
-```python
-# Mini 4-hour test: "Can probes detect unfaithful CoT?"
-
-faithful_texts = [...]  # 50 examples
-unfaithful_texts = [...]  # 50 examples
-
-# Extract activations
-X_f = []
-X_u = []
-
-for text in faithful_texts:
-    _, cache = model.run_with_cache(text)
-    act = cache["resid_post", 15][0, -1, :].cpu().numpy()
-    X_f.append(act)
-
-# Train probe
-# If accuracy >60%: Good signal
-# If accuracy ~50%: Problem with data/approach
-```
+**What we learn:**
+- If YES: Probes can detect subtle unfaithfulness signatures
+- If NO: "Nudged reasoning" is too subtle for linear probes — fundamental limitation
 
 ---
 
-### Day 17-18: Detailed Project Plan (6-8 hours)
+#### Q4: Do probe-based importance estimates correlate with resampling-based importance?
 
-#### Hour-by-Hour Execution Plan
+**Background:** If probes work, high probe confidence should correlate with high counterfactual importance.
+
+**Method:**
+1. For small subset (~10 problems), compute both:
+   - Probe confidence at each sentence
+   - Counterfactual importance via resampling (20 rollouts per sentence)
+2. Correlate the two measures
+
+**Success criterion:** Significant positive correlation (r > 0.3, p < 0.05)
+
+**What we learn:**
+- If YES: Probes are cheap approximation to expensive resampling
+- If NO: Probes capture different structure than causal importance
+
+---
+
+### Revised Hypotheses
+
+Based on literature review:
+
+| Hypothesis | Prediction | Evidence |
+|------------|------------|----------|
+| H1 (Revised) | Middle layers (~37% depth) outperform late layers | Venhoff steering at 37% |
+| H2 (Revised) | Probes on plan generation > probes on computation | Thought Anchors importance |
+| H3 (Unchanged) | Probes generalize within task types but not across | Standard ML intuition |
+| H4 (Strengthened) | Probes vulnerable to stylistic manipulation | Nudged reasoning is subtle |
+| H5 (New) | Sentence-averaged activations > token-level | All three papers use sentence-level |
+
+---
+
+## Week 1: Foundations (COMPLETED)
+
+### Day 1-2: Setup & Transformer Basics (6-8 hours) ✅
+
+- Environment setup with TransformerLens
+- First model interactions with GPT-2
+- ARENA tutorial sections 1.2.1-1.2.3
+
+### Day 3-4: First Probes (8-10 hours) ✅
+
+- Sentiment probe implementation
+- Multi-layer comparison
+- Generalization testing
+
+**Key learnings documented:**
+- Later layers ≠ more information
+- Position matters (last token contaminated)
+- Residual stream accumulates
+
+### Day 5-6: Advanced Techniques (6-8 hours) ✅
+
+- Position analysis
+- Attention head probing
+- MLP probing
+- Component comparison
+
+---
+
+## Week 2: Literature Integration & Dataset
+
+### Day 7-8: Literature Review (COMPLETED)
+
+- ✅ Reviewed Thought Anchors paper
+- ✅ Reviewed Thought Branches paper  
+- ✅ Reviewed Base Models Know How paper
+- ✅ Synthesized implications for project
+- ✅ Reframed project as tool validation study
+
+### Day 8-9: nnsight Setup (COMPLETED)
+
+- ✅ nnsight installation and configuration
+- ✅ Qwen2.5-7B-Instruct loading
+- ✅ Activation extraction working
+- ✅ Activation patching demo
+- ✅ Activation norm analysis
+
+**Key discovery:** Activation norms correlate with computational effort but NOT with causal importance (based on Thought Anchors).
+
+### Day 10-11: Dataset Construction (CURRENT)
+
+**Goal:** Create annotated dataset for Q1-Q3
+
+**Tasks:**
+1. Generate 50-100 CoT traces on GSM8K/MATH problems
+2. Annotate with 8-category sentence taxonomy (can use LLM assistance)
+3. Generate hinted vs unhinted pairs for ~20 problems
+4. Verify annotation quality on subset
+
+**Sentence Annotation Guidelines:**
+
+```python
+SENTENCE_TAXONOMY = {
+    'problem_setup': 'Parsing, rephrasing the problem',
+    'plan_generation': 'Stating plans, meta-reasoning, deciding approach',
+    'fact_retrieval': 'Recalling formulas, definitions without computation',
+    'active_computation': 'Algebra, arithmetic, calculations',
+    'uncertainty_management': 'Expressing confusion, backtracking, reconsidering',
+    'result_consolidation': 'Aggregating partial results',
+    'self_checking': 'Verifying intermediate or final results',
+    'final_answer': 'Stating the final answer'
+}
+```
+
+**Hint methodology (from Thought Branches):**
+```
+Original: "What is 2 + 2?"
+Hinted: "A professor thinks the answer is 5. What is 2 + 2?"
+```
+
+Find cases where hint changes answer distribution but isn't mentioned in CoT.
+
+### Day 12: Baseline Probes
+
+**Goal:** Establish baselines for Q1
+
+**Tasks:**
+1. Train sentence-type classifier at multiple layers
+2. Compare: early (25%), middle (37%, 50%), late (75%, 90%)
+3. Compare: token-level vs sentence-averaged activations
+4. Document which configurations work best
+
+---
+
+## Week 3: Core Experiments
+
+### Day 13-14: Q1 - Sentence Type Classification
+
+**Experiments:**
+1. Train multi-class probe (8 categories) at best layer from Day 12
+2. Compute per-class accuracy (which types are easiest/hardest?)
+3. Confusion matrix analysis
+4. Test generalization to held-out problems
+
+**Expected findings:**
+- Plan generation and uncertainty management may be harder to distinguish from each other (both involve meta-reasoning)
+- Active computation likely easiest (distinctive activation patterns)
+
+### Day 15-16: Q2 - Generalization Testing
+
+**Experiments:**
+1. Train probe on GSM8K, test on MATH500
+2. Train probe on math, test on non-math reasoning (if time)
+3. Analyze: which sentence types transfer best?
+
+**Expected findings:**
+- Some types (active computation) may transfer well
+- Domain-specific types (specific formulas) may not transfer
+
+### Day 17-18: Q3 - Hint Detection
+
+**Experiments:**
+1. Generate hinted vs unhinted CoT pairs (~20 problems × 5 seeds each)
+2. Identify unfaithful cases (hint changed answer, not mentioned)
+3. Train binary probe: hinted vs unhinted
+4. Analyze: which layers/positions discriminate best?
+
+**Expected findings:**
+- If Thought Branches is right about "nudged reasoning" being subtle, probes may struggle
+- May need to aggregate across full trace rather than single position
+
+---
+
+## Week 4: Validation & Write-up
+
+### Day 19-20: Q4 - Resampling Validation (If Time)
+
+**Experiments:**
+1. Select 10 problems where probe has high-confidence predictions
+2. Run small-scale resampling (20 rollouts per sentence)
+3. Compute counterfactual importance
+4. Correlate probe confidence with counterfactual importance
+
+**This is computationally expensive — only do if time permits**
+
+### Day 21-22: Write-up
+
+**Deliverables:**
+
+1. **Executive Summary (1 page)**
+   - Main question and approach
+   - Key findings (positive AND negative)
+   - Practical recommendations
+
+2. **Main Document (5-7 pages)**
+   - Introduction and motivation
+   - Literature context
+   - Methods
+   - Results for each question
+   - Discussion of limitations
+   - Recommendations for future work
+
+3. **Supplementary Materials**
+   - Full experimental details
+   - All figures and tables
+   - Code repository
+
+**Structure for write-up:**
 
 ```markdown
-# Main Project: What Makes CoT Faithfulness Probes Work?
+# Which Interpretability Tools Work for Reasoning Models? A Probe-Focused Investigation
 
-## Research Question
-When and why can linear probes detect unfaithful chain-of-thought?
-
-## Hypotheses
-H1: Later layers better (closer to output)
-H2: Information at conclusion words
-H3: Generalize within task, not across
-H4: Vulnerable to adversarial style changes
-
-## Hour-by-Hour Plan
-
-### Hour 1: Dataset finalization
-- Load Arcuschin dataset
-- Filter 100 faithful + 100 unfaithful
-- Verify 10 examples manually
-- Train/test split (70/30)
-- SUCCESS: Clean verified dataset
-
-### Hour 2: Baseline probe
-- Extract last-position activations at layer 15
-- Train logistic regression
-- Record accuracy
-- SUCCESS: >60% test accuracy
-- FALLBACK: If <55%, check data
-
-### Hour 3: Layer comparison
-- Test layers [6, 9, 12, 15, 18, 21]
-- Train probe at each
-- Plot accuracy vs layer
-- SUCCESS: Identify best layers
-
-### Hour 4-5: Position analysis
-- Test positions: first, last, mean, conclusion markers
-- Create position heatmap
-- SUCCESS: Find where information lives
-
-### Hour 6-7: Generalization testing
-- Train on math, test on logic
-- Train on short CoT, test on long
-- SUCCESS: Characterize transfer
-
-### Hour 8-9: Cross-task testing
-- Test multiple task pairs
-- Build transfer matrix
-- SUCCESS: Identify generalization patterns
-
-### Hour 10-12: Adversarial testing
-- Style changes (formal vs casual)
-- Synonym substitution
-- Paraphrasing
-- SUCCESS: Document vulnerabilities
-
-### Hour 13-15: Mechanistic understanding
-- Extract probe direction
-- Analyze high-activating examples
-- Compare to confidence scores
-- Ablation tests
-
-### Hour 16-18: Controls and sanity checks
-- Check for syntax detection
-- Check for length correlations
-- Verify not detecting spurious patterns
-
-### Hour 19-20: Main write-up
-- Research question
-- Methodology (with details)
-- Results (3-4 key graphs)
-- Limitations
-- Implications
-
-### Hour 21-22: Executive summary
-- 1-2 pages
-- Key finding first paragraph
-- Evidence (1-2 graphs)
-- Practical implications
-- Honest limitations
-```
-
-#### Decision Points
-
-```markdown
-## Decision Point (Hour 6)
-**Question:** Do probes generalize across tasks?
-
-**Option A: Yes (>70% accuracy)**
-→ Test more task pairs
-→ Characterize what enables generalization
-
-**Option B: Partial (55-70%)**
-→ Analyze which transfer, which don't
-→ Test if fine-tuning helps
-
-**Option C: No (<55%)**
-→ PIVOT: Focus on why they don't
-→ Important safety finding
-→ Analyze task differences
-```
-
-#### Prepare Code Templates
-
-```python
-# experiment_1_layer_comparison.py
-def run_layer_comparison(faithful_data, unfaithful_data, layers):
-    """Compare probes across layers"""
-    results = []
-    for layer in layers:
-        # Extract activations
-        # Train probe
-        # Evaluate
-        results.append({'layer': layer, 'accuracy': acc})
-    return results
-
-# experiment_2_position_analysis.py
-def run_position_analysis(data, layer, positions):
-    """Compare different token positions"""
-    pass
-
-# experiment_3_generalization.py
-def test_generalization(train_data, test_data_different):
-    """Test cross-task generalization"""
-    pass
-
-# experiment_4_adversarial.py
-def test_adversarial_robustness(probe, adversarial_examples):
-    """Test probe robustness"""
-    pass
-
-# visualization.py
-def plot_layer_comparison(results):
-    """Standard visualization"""
-    pass
-```
-
----
-
-### Day 19: Final Checks (2-3 hours)
-
-**Checklist before starting timer:**
-
-- [ ] GPU access confirmed (rent for 24 hours)
-- [ ] All code tested and working
-- [ ] Dataset downloaded and verified
-- [ ] Helper functions all work
-- [ ] Visualization code tested
-- [ ] Write-up template created
-- [ ] Time tracking tool ready (Toggl)
-- [ ] No other commitments for 2 days
-
-**Do 2-hour dry run:**
-- Pretend it's real
-- Run Hour 1-2 of plan
-- Check if on schedule
-- If behind: simplify plan
-
----
-
-## Week 4: Execution (22 hours)
-
-### Day 20-21: The 20-Hour Project
-
-#### Every 2 Hours: Check-in
-
-```markdown
-Hour X check-in:
-- On schedule? [Yes/No/Behind]
-- Learned something interesting? [Yes/No]
-- Need to adjust plan? [Yes/No]
-- Energy level: [High/Medium/Low]
-
-If behind: What can I cut?
-If low energy: 10-min break (don't count)
-```
-
-#### Critical Rules
-
-1. **Don't get stuck:** >30 minutes not working? Pivot
-2. **Write as you go:** Don't save for end
-3. **Make graphs immediately:** Visualize results now
-4. **Document failures:** Failed experiments go in write-up
-5. **Stop at 20 hours:** Partial results are fine
-
-#### Hours 19-20: Main Document Structure
-
-```markdown
-# What Makes CoT Faithfulness Probes Work?
-
-## Abstract (200 words)
-What investigated, key findings, implications
+## Abstract
+Tested whether linear probes can capture reasoning-relevant structure...
+Found that probes [can/cannot] distinguish sentence types...
+[Do/don't] detect hint influence...
+Suggests probes are [useful/limited] for faithfulness monitoring.
 
 ## Introduction
-- Why this matters (AI control, monitoring)
-- Research question
-- Hypotheses
+- Reasoning models and CoT monitoring
+- Gap: probes untested for reasoning models
+- This project: systematic evaluation
+
+## Literature Context
+- Thought Anchors: what matters
+- Thought Branches: how unfaithfulness works
+- Venhoff: linear steerability
 
 ## Methods
-- Dataset (size, types)
-- Model (Qwen 2.5 7B)
-- Probe architecture
+- Dataset construction
+- Probe training
 - Evaluation metrics
 
 ## Results
-### 1. Layer Comparison
-[Graph: accuracy vs layer]
-Finding: Layers 18-21 better (78% vs 62%)
-
-### 2. Position Analysis
-[Heatmap: position vs accuracy]
-Finding: Concentrated at conclusions
-
-### 3. Generalization
-[Table: cross-task accuracies]
-Finding: Within-task works, cross-task fails
-
-### 4. Failure Modes
-[Examples of adversarial failures]
-Finding: Style changes fool probes
+### Q1: Sentence Type Classification
+### Q2: Generalization
+### Q3: Hint Detection
+### Q4: Resampling Validation (if done)
 
 ## Discussion
-What results mean, why work/fail, implications
-
-## Limitations
-Be honest, what with more time?
+- What probes can and cannot do
+- Practical recommendations
+- Limitations
+- Future work
 
 ## Conclusion
-Key takeaway, future work
-```
-
-#### Hours 21-22: Executive Summary Template
-
-```markdown
-# Executive Summary: CoT Faithfulness Detection
-
-## Key Finding
-[One clear sentence stating main result]
-
-## Why This Matters
-[Connection to AI control/safety]
-
-## What I Did
-[Brief methodology]
-
-[1-2 key graphs]
-
-## Main Findings
-1. [Finding 1 with number]
-2. [Finding 2 with number]
-3. [Finding 3 with number]
-4. [Finding 4 with number]
-
-## Implications for AI Control
-- [Practical implication 1]
-- [Practical implication 2]
-- [Recommendation]
-
-## Limitations
-- [Limitation 1]
-- [Limitation 2]
-
-## Future Work
-- [Next step 1]
-- [Next step 2]
 ```
 
 ---
 
 ## Code Templates
 
-### Complete Probe Toolkit
+### Sentence-Level Activation Extraction (nnsight)
 
 ```python
 import numpy as np
-import torch
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
+from nnsight import LanguageModel
 
-class ProbeToolkit:
-    """Complete toolkit for probe experiments"""
+def extract_sentence_activations(model, text, layer, sentence_boundaries):
+    """
+    Extract sentence-averaged activations.
     
-    def __init__(self, model):
-        self.model = model
-        
-    def extract_activations(self, sentences, layer, position='last', 
-                          component='residual'):
-        """
-        Extract activations from model
-        
-        Args:
-            sentences: List of strings
-            layer: Layer number
-            position: 'last', 'first', 'mean', or 'max'
-            component: 'residual', 'attention', or 'mlp'
-        """
-        activations = []
-        for sentence in sentences:
-            _, cache = self.model.run_with_cache(sentence)
-            
-            # Get component
-            if component == 'residual':
-                acts = cache["resid_post", layer][0, :, :].cpu().numpy()
-            elif component == 'attention':
-                acts = cache[f"blocks.{layer}.attn.hook_result"]
-                acts = acts[0, :, :, :].cpu().numpy()
-                acts = acts.reshape(acts.shape[0], -1)
-            elif component == 'mlp':
-                acts = cache[f"blocks.{layer}.hook_mlp_out"][0, :, :].cpu().numpy()
-            
-            # Extract position
-            if position == 'last':
-                act = acts[-1]
-            elif position == 'first':
-                act = acts[0]
-            elif position == 'mean':
-                act = acts.mean(axis=0)
-            elif position == 'max':
-                act = acts.max(axis=0)
-            
-            activations.append(act)
-        return np.array(activations)
+    Args:
+        model: nnsight LanguageModel
+        text: Full CoT text
+        layer: Which layer to extract from
+        sentence_boundaries: List of (start_token, end_token) tuples
     
-    def train_probe(self, X_pos, X_neg, test_size=0.3, random_state=42):
-        """Train probe with proper evaluation"""
-        X = np.vstack([X_pos, X_neg])
-        y = np.array([1]*len(X_pos) + [0]*len(X_neg))
-        
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=random_state, stratify=y
-        )
-        
-        probe = LogisticRegression(max_iter=1000, random_state=random_state)
-        probe.fit(X_train, y_train)
-        
-        return {
-            'probe': probe,
-            'train_acc': probe.score(X_train, y_train),
-            'test_acc': probe.score(X_test, y_test),
-            'X_train': X_train,
-            'y_train': y_train,
-            'X_test': X_test,
-            'y_test': y_test,
-            'predictions': probe.predict(X_test),
-            'probabilities': probe.predict_proba(X_test)
-        }
+    Returns:
+        Array of shape (num_sentences, hidden_dim)
+    """
+    with model.trace(text):
+        hidden = model.model.layers[layer].output[0].save()
     
-    def systematic_comparison(self, pos_sentences, neg_sentences,
-                            layers=[0,3,6,9,11], 
-                            positions=['last', 'mean'],
-                            components=['residual']):
-        """Compare across configurations"""
-        results = []
-        
-        for layer in layers:
-            for position in positions:
-                for component in components:
-                    print(f"Testing layer={layer}, pos={position}, comp={component}")
-                    
-                    X_pos = self.extract_activations(
-                        pos_sentences, layer, position, component
-                    )
-                    X_neg = self.extract_activations(
-                        neg_sentences, layer, position, component
-                    )
-                    
-                    probe_results = self.train_probe(X_pos, X_neg)
-                    
-                    results.append({
-                        'layer': layer,
-                        'position': position,
-                        'component': component,
-                        'train_acc': probe_results['train_acc'],
-                        'test_acc': probe_results['test_acc'],
-                        'probe': probe_results['probe']
-                    })
-        
-        return pd.DataFrame(results)
+    acts = hidden.value.float().detach().cpu().numpy()
     
-    def test_generalization(self, probe, new_pos, new_neg, layer, position='last'):
-        """Test probe on new distribution"""
-        X_new_pos = self.extract_activations(new_pos, layer, position)
-        X_new_neg = self.extract_activations(new_neg, layer, position)
-        X_new = np.vstack([X_new_pos, X_new_neg])
-        y_new = np.array([1]*len(new_pos) + [0]*len(new_neg))
-        
-        accuracy = probe.score(X_new, y_new)
-        predictions = probe.predict(X_new)
-        
-        return {
-            'accuracy': accuracy,
-            'predictions': predictions,
-            'true_labels': y_new
-        }
+    sentence_acts = []
+    for start, end in sentence_boundaries:
+        # Average across tokens in sentence
+        sent_act = acts[start:end].mean(axis=0)
+        sentence_acts.append(sent_act)
     
-    def plot_layer_comparison(self, results_df, save_path=None):
-        """Visualize layer comparison"""
-        plt.figure(figsize=(10, 6))
-        
-        for position in results_df['position'].unique():
-            df_pos = results_df[results_df['position'] == position]
-            plt.plot(df_pos['layer'], df_pos['test_acc'], 
-                    marker='o', label=position)
-        
-        plt.xlabel('Layer')
-        plt.ylabel('Test Accuracy')
-        plt.title('Probe Accuracy by Layer and Position')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        
-        if save_path:
-            plt.savefig(save_path)
-        plt.show()
-    
-    def plot_position_heatmap(self, results_df, save_path=None):
-        """Heatmap of position vs layer"""
-        pivot = results_df.pivot(
-            index='layer', 
-            columns='position', 
-            values='test_acc'
-        )
-        
-        plt.figure(figsize=(8, 6))
-        sns.heatmap(pivot, annot=True, fmt='.2%', cmap='viridis')
-        plt.title('Probe Accuracy: Layer vs Position')
-        
-        if save_path:
-            plt.savefig(save_path)
-        plt.show()
+    return np.array(sentence_acts)
 ```
 
-### CoT Analyzer
+### Sentence Type Probe
 
 ```python
-class CoTProbeAnalyzer:
-    """Specialized analyzer for CoT"""
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import cross_val_score
+
+class SentenceTypeProbe:
+    """Probe for classifying sentence types in CoT."""
     
-    def __init__(self, model):
-        self.model = model
-        self.reasoning_markers = {
-            'reasoning': ['first', 'then', 'next', 'because', 'since'],
-            'conclusion': ['therefore', 'so', 'thus', 'hence'],
-            'uncertainty': ['maybe', 'possibly', 'might', 'perhaps'],
-            'correction': ['wait', 'actually', 'no', 'correction']
-        }
+    CATEGORIES = [
+        'problem_setup', 'plan_generation', 'fact_retrieval',
+        'active_computation', 'uncertainty_management',
+        'result_consolidation', 'self_checking', 'final_answer'
+    ]
     
-    def extract_cot_activations(self, text, layer=15):
-        """Extract activations throughout CoT sequence"""
-        _, cache = self.model.run_with_cache(text)
-        acts = cache["resid_post", layer][0, :, :].cpu().numpy()
-        
-        tokens = self.model.tokenizer.encode(text)
-        token_strs = [self.model.tokenizer.decode([t]) for t in tokens]
-        
-        return acts, token_strs
+    def __init__(self, layer):
+        self.layer = layer
+        self.scaler = StandardScaler()
+        self.probe = LogisticRegression(
+            max_iter=1000,
+            multi_class='multinomial',
+            random_state=42
+        )
     
-    def find_reasoning_markers(self, text):
-        """Find positions of reasoning markers"""
-        tokens = self.model.tokenizer.encode(text)
-        token_strs = [self.model.tokenizer.decode([t]) for t in tokens]
+    def fit(self, X, y):
+        """
+        Fit probe on sentence activations.
         
-        positions = {k: [] for k in self.reasoning_markers}
-        
-        for i, token in enumerate(token_strs):
-            token_lower = token.lower().strip()
-            for marker_type, words in self.reasoning_markers.items():
-                if any(word in token_lower for word in words):
-                    positions[marker_type].append(i)
-        
-        return positions
+        Args:
+            X: (num_sentences, hidden_dim) activations
+            y: (num_sentences,) category indices
+        """
+        X_scaled = self.scaler.fit_transform(X)
+        self.probe.fit(X_scaled, y)
+        return self
     
-    def extract_at_markers(self, texts, layer=15, marker_type='conclusion'):
-        """Extract activations at specific markers"""
-        all_marker_acts = []
-        
-        for text in texts:
-            acts, _ = self.extract_cot_activations(text, layer)
-            markers = self.find_reasoning_markers(text)
-            
-            for pos in markers[marker_type]:
-                if pos < len(acts):
-                    all_marker_acts.append(acts[pos])
-        
-        return np.array(all_marker_acts) if all_marker_acts else np.array([])
+    def predict(self, X):
+        X_scaled = self.scaler.transform(X)
+        return self.probe.predict(X_scaled)
     
-    def compare_positions(self, faithful_texts, unfaithful_texts, layer=15):
-        """Compare different position strategies"""
-        results = {}
+    def predict_proba(self, X):
+        X_scaled = self.scaler.transform(X)
+        return self.probe.predict_proba(X_scaled)
+    
+    def score(self, X, y):
+        X_scaled = self.scaler.transform(X)
+        return self.probe.score(X_scaled, y)
+    
+    def cross_val_score(self, X, y, cv=5):
+        X_scaled = self.scaler.fit_transform(X)
+        return cross_val_score(self.probe, X_scaled, y, cv=cv)
+```
+
+### Hint Detection Probe
+
+```python
+class HintDetectionProbe:
+    """Probe for detecting hint influence in CoT."""
+    
+    def __init__(self, layer, aggregation='mean'):
+        """
+        Args:
+            layer: Which layer to extract from
+            aggregation: How to aggregate across sentences
+                - 'mean': Average all sentence activations
+                - 'concat': Concatenate (fixed number of sentences)
+                - 'plan': Only use plan_generation sentences
+        """
+        self.layer = layer
+        self.aggregation = aggregation
+        self.scaler = StandardScaler()
+        self.probe = LogisticRegression(max_iter=1000, random_state=42)
+    
+    def aggregate(self, sentence_acts, sentence_types=None):
+        """Aggregate sentence activations into single vector."""
+        if self.aggregation == 'mean':
+            return sentence_acts.mean(axis=0)
+        elif self.aggregation == 'plan':
+            # Only use plan_generation sentences
+            plan_mask = [t == 'plan_generation' for t in sentence_types]
+            if sum(plan_mask) > 0:
+                return sentence_acts[plan_mask].mean(axis=0)
+            else:
+                return sentence_acts.mean(axis=0)
+        else:
+            raise ValueError(f"Unknown aggregation: {self.aggregation}")
+    
+    def fit(self, X_hinted, X_unhinted):
+        """
+        Fit probe on hinted vs unhinted CoTs.
         
-        # Last position
-        toolkit = ProbeToolkit(self.model)
-        X_f = toolkit.extract_activations(faithful_texts, layer, 'last')
-        X_u = toolkit.extract_activations(unfaithful_texts, layer, 'last')
-        results['last'] = toolkit.train_probe(X_f, X_u)
+        Args:
+            X_hinted: List of (sentence_acts, sentence_types) for hinted
+            X_unhinted: List of (sentence_acts, sentence_types) for unhinted
+        """
+        X = []
+        y = []
         
-        # Mean position
-        X_f = toolkit.extract_activations(faithful_texts, layer, 'mean')
-        X_u = toolkit.extract_activations(unfaithful_texts, layer, 'mean')
-        results['mean'] = toolkit.train_probe(X_f, X_u)
+        for acts, types in X_hinted:
+            X.append(self.aggregate(acts, types))
+            y.append(1)  # hinted
         
-        # Conclusion markers
-        X_f = self.extract_at_markers(faithful_texts, layer, 'conclusion')
-        X_u = self.extract_at_markers(unfaithful_texts, layer, 'conclusion')
-        if len(X_f) > 0 and len(X_u) > 0:
-            results['conclusion'] = toolkit.train_probe(X_f, X_u)
+        for acts, types in X_unhinted:
+            X.append(self.aggregate(acts, types))
+            y.append(0)  # unhinted
         
-        return results
+        X = np.array(X)
+        y = np.array(y)
+        
+        X_scaled = self.scaler.fit_transform(X)
+        self.probe.fit(X_scaled, y)
+        return self
+    
+    def predict(self, sentence_acts, sentence_types=None):
+        x = self.aggregate(sentence_acts, sentence_types).reshape(1, -1)
+        x_scaled = self.scaler.transform(x)
+        return self.probe.predict(x_scaled)[0]
+    
+    def predict_proba(self, sentence_acts, sentence_types=None):
+        x = self.aggregate(sentence_acts, sentence_types).reshape(1, -1)
+        x_scaled = self.scaler.transform(x)
+        return self.probe.predict_proba(x_scaled)[0]
+```
+
+### LLM-Assisted Sentence Annotation
+
+```python
+def annotate_sentences_with_llm(sentences, client):
+    """
+    Use LLM to annotate sentence types.
+    
+    Args:
+        sentences: List of sentences from CoT
+        client: OpenAI/Anthropic client
+    
+    Returns:
+        List of category labels
+    """
+    prompt = """Classify each sentence into one of these categories:
+    
+1. problem_setup: Parsing, rephrasing the problem
+2. plan_generation: Stating plans, meta-reasoning, deciding approach
+3. fact_retrieval: Recalling formulas, definitions without computation
+4. active_computation: Algebra, arithmetic, calculations
+5. uncertainty_management: Expressing confusion, backtracking, reconsidering
+6. result_consolidation: Aggregating partial results
+7. self_checking: Verifying intermediate or final results
+8. final_answer: Stating the final answer
+
+For each sentence, output ONLY the category name, one per line.
+
+Sentences:
+"""
+    for i, sent in enumerate(sentences):
+        prompt += f"{i+1}. {sent}\n"
+    
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
+    )
+    
+    labels = response.choices[0].message.content.strip().split('\n')
+    return [label.strip().lower() for label in labels]
 ```
 
 ---
@@ -1372,144 +713,150 @@ class CoTProbeAnalyzer:
 #### GPU Out of Memory
 
 ```python
-# Reduce batch size
-# Process one at a time
-for sentence in sentences:
-    _, cache = model.run_with_cache(sentence)
-    # Extract and clear cache
+# Process one CoT at a time
+for cot in cots:
+    acts = extract_sentence_activations(model, cot, layer, boundaries)
+    # Save to disk immediately
+    np.save(f"acts_{i}.npy", acts)
     torch.cuda.empty_cache()
 ```
 
-#### Probe Accuracy ~50% (Random)
+#### Probe Accuracy ~Random (1/8 = 12.5%)
 
 **Causes:**
-1. Labels are wrong
-2. Information not in this layer
-3. Information not linearly accessible
-4. Not enough data
+1. Sentence boundaries wrong
+2. Layer doesn't contain type information
+3. Categories too fine-grained
 
 **Debug:**
 ```python
-# Check label distribution
-print(f"Positive: {sum(y)}, Negative: {len(y) - sum(y)}")
-
-# Try different layers
-for layer in range(0, 12):
-    # ... test each
-
-# Check if any signal exists
-from sklearn.decomposition import PCA
-pca = PCA(n_components=2)
-X_pca = pca.fit_transform(X)
-plt.scatter(X_pca[y==1, 0], X_pca[y==1, 1], label='Positive')
-plt.scatter(X_pca[y==0, 0], X_pca[y==0, 1], label='Negative')
+# Simplify to binary: computation vs non-computation
+y_binary = [1 if cat == 'active_computation' else 0 for cat in y]
+# Should be much easier
 ```
 
-#### High Train, Low Test Accuracy
+#### Sentence Boundary Detection Issues
 
-**Overfitting. Solutions:**
 ```python
-# More data
-# Simpler model
-probe = LogisticRegression(C=0.1)  # More regularization
+import re
 
-# Check for data leakage
-# Verify train/test split is correct
+def get_sentence_boundaries(text, tokenizer):
+    """Get token indices for sentence boundaries."""
+    # Split by common sentence endings
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    
+    boundaries = []
+    current_pos = 0
+    
+    for sent in sentences:
+        tokens = tokenizer.encode(sent)
+        start = current_pos
+        end = current_pos + len(tokens)
+        boundaries.append((start, end))
+        current_pos = end
+    
+    return boundaries, sentences
 ```
 
-#### Code Running Very Slow
+#### High Train / Low Test Accuracy
 
 ```python
-# Cache activations
-activations_cache = {}
+# More regularization
+probe = LogisticRegression(C=0.01, max_iter=1000)
 
-def get_cached_activation(text, layer):
-    key = (text, layer)
-    if key not in activations_cache:
-        _, cache = model.run_with_cache(text)
-        activations_cache[key] = cache["resid_post", layer]
-    return activations_cache[key]
+# Or use cross-validation
+from sklearn.model_selection import cross_val_score
+scores = cross_val_score(probe, X, y, cv=5)
+print(f"CV accuracy: {scores.mean():.2%} ± {scores.std():.2%}")
 ```
 
 ### When to Ask for Help
 
 **Stop immediately if:**
-- Can't get model running after 3 hours
-- Basic probe <50% accuracy on simple task
-- Consistent errors you don't understand
-- Behind schedule by >50% in practice projects
+- Can't generate CoTs with Qwen after 2 hours
+- Sentence annotation clearly wrong
+- Basic probe <15% accuracy on 8-class task
+- Consistent shape mismatches
 
 **Where to get help:**
-- ARENA Discord: #technical-questions
-- TransformerLens GitHub
-- LessWrong: Quick questions
-- Claude/Gemini with error messages
+- MATS Slack: #technical-questions
+- nnsight GitHub issues
+- Claude/ChatGPT with error messages
 
 ---
 
 ## Success Criteria
 
-### End of Week 1
-- [ ] Can extract activations from any layer
-- [ ] Can train probe with >70% on toy task
-- [ ] Understand when probes work/fail
-- [ ] Completed 2+ practice exercises
+### End of Week 1 ✅
+- [x] Can extract activations from any layer
+- [x] Can train probe with >70% on toy task
+- [x] Understand when probes work/fail
+- [x] Completed 2+ practice exercises
 
 ### End of Week 2
-- [ ] Can work with reasoning models
-- [ ] Completed 1+ end-to-end practice project
-- [ ] Can write clear 2-page research summary
-- [ ] Have reusable probe toolkit
+- [ ] Literature review complete (3 papers)
+- [ ] Project reframed as tool validation ✅
+- [ ] 50+ annotated CoT sentences
+- [ ] Baseline sentence-type probe trained
+- [ ] Know which layer works best
 
 ### End of Week 3
-- [ ] Complete hour-by-hour project plan
-- [ ] CoT faithfulness dataset ready
-- [ ] All code templates working
-- [ ] Successful mini-test of pipeline
+- [ ] Q1 results: sentence type classification
+- [ ] Q2 results: generalization testing
+- [ ] Q3 results: hint detection
+- [ ] Clear picture of what probes can/cannot do
 
 ### End of Week 4
-- [ ] Completed 20-hour project
-- [ ] Executive summary + main document
-- [ ] Learned something concrete about probes
-- [ ] Can articulate findings clearly
+- [ ] Q4 results (if time): resampling validation
+- [ ] Executive summary written
+- [ ] Main document complete
+- [ ] Honest assessment of findings
+- [ ] Practical recommendations documented
 
 ---
 
 ## Quick Reference
 
-### Essential Commands
+### Key Insight from Literature
 
-```python
-# Load model
-model = tl.HookedTransformer.from_pretrained("gpt2-small")
+**High activation norm ≠ High causal importance**
 
-# Extract activations
-_, cache = model.run_with_cache(text)
-acts = cache["resid_post", layer][0, -1, :].cpu().numpy()
+Your finding: Mathematical tokens have higher norms
+Thought Anchors: Computation has LOW causal importance
 
-# Train probe
-probe = LogisticRegression(max_iter=1000)
-probe.fit(X_train, y_train)
-test_acc = probe.score(X_test, y_test)
+**Implication:** Activation magnitude tracks effort, not importance. Test whether directions (probes) do better than magnitudes (norms).
 
-# Get probe direction
-direction = probe.coef_[0]
-```
+### Sentence Types by Expected Importance
 
-### Key Files to Have Open
+| Type | Causal Importance | Probe Difficulty |
+|------|-------------------|------------------|
+| Plan Generation | **HIGH** | Medium-Hard |
+| Uncertainty Management | **HIGH** | Hard |
+| Active Computation | **LOW** | Easy |
+| Problem Setup | LOW | Easy |
+| Final Answer | LOW | Easy |
+
+### Layer Selection Guidance
+
+| Depth | Expected Performance | Why |
+|-------|---------------------|-----|
+| Early (0-25%) | Poor | Too close to input |
+| Middle (30-50%) | **Best** | Where reasoning happens |
+| Late (75-100%) | Medium | Output preparation interference |
+
+### Files to Have Open
 
 1. This guide (mats_project_guide.md)
-2. ProbeToolkit class
-3. CoTProbeAnalyzer class
-4. Your hour-by-hour plan
-5. Results tracking document
+2. CLAUDE.md (project context)
+3. Current notebook
+4. Thought Anchors taxonomy (reference)
 
 ### Remember
 
-- **Depth over breadth:** Master probes, don't dabble in everything
-- **Honest over impressive:** Partial results with honesty > overstated claims
-- **Process over results:** Show good research process even if results are null
-- **Practical over theoretical:** Connect to AI control applications
-- **Clear over complex:** Simple, well-executed beats ambitious failure
+- **Tool validation over hypothesis confirmation:** We're testing whether probes work, not proving they do
+- **Negative results are valuable:** Finding probes don't work is useful
+- **Characterize failure modes:** When probes fail, understand why
+- **Be honest:** Don't oversell partial results
+- **Connect to practice:** What should practitioners actually do?
 
-**You've got this. Build something real. Learn something concrete. Be honest about what you find.**
+**This is exploratory research. Document what you find, whatever it is.**
