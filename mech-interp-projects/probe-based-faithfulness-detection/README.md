@@ -408,9 +408,13 @@ class ProbeToolkit:
 
 ## Week 2: Advanced Practice (20-25 hours)
 
-### Day 8-9: Reasoning Models (8-10 hours)
+### Day 8-9: Reasoning Models & CoT Analysis (8-10 hours)
 
 #### Setup Qwen with nnsight (2-3 hours)
+
+**Notebooks created:**
+- `day8-9_nnsight_setup.ipynb` - nnsight fundamentals and verification
+- `day8-9_cot_structure_and_dataset.ipynb` - CoT structure analysis and dataset building
 
 ```python
 from nnsight import LanguageModel
@@ -423,21 +427,92 @@ model = LanguageModel(
     torch_dtype=torch.float16
 )
 
-# Generate with access to internals
-prompt = "What is 17 * 23? Think step by step."
+# IMPORTANT: nnsight lazily loads weights. Run a trace first to trigger loading:
+with model.trace("Hello"):
+    _ = model.model.layers[0].output[0].save()
 
-with model.generate(max_new_tokens=300) as generator:
-    with generator.invoke(prompt) as invoker:
-        # Access hidden states during generation
-        hidden_states = model.model.layers[15].output[0].save()
+# Generation function (use model.generate directly, not via trace)
+def generate_text(prompt, max_new_tokens=300):
+    inputs = model.tokenizer(prompt, return_tensors="pt", return_attention_mask=True)
+    input_ids = inputs["input_ids"].to(model.device)
+    attention_mask = inputs["attention_mask"].to(model.device)
 
-output_text = model.tokenizer.decode(generator.output[0])
-print(output_text)
+    with torch.no_grad():
+        output_ids = model.generate(
+            input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            pad_token_id=model.tokenizer.eos_token_id
+        )
+    return model.tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
-# Access saved activations
-acts = hidden_states.value
-print(f"Shape: {acts.shape}")
+# Extract activations (note: no .value needed in current nnsight API)
+with model.trace("The capital of France is Paris."):
+    hidden = model.model.layers[14].output[0].save()
+
+# Shape is [seq_len, hidden_size] - NO batch dimension
+acts = hidden.float().detach().cpu().numpy()  # Convert to float32 to avoid overflow
 ```
+
+**Key nnsight API discoveries:**
+- `layers[].output[0]`: NO batch dim - shape `[seq_len, hidden_size]`
+- `mlp.output`: NO batch dim - shape `[seq_len, hidden_size]`
+- `self_attn.output[0]`: HAS batch dim - shape `[batch, seq_len, hidden_size]`
+- Must use `.float()` before computing norms (float16 overflow)
+- Use separate traces for different component types (avoids OutOfOrderError)
+
+#### CoT Structure Analysis & Activation Norm Insights
+
+**Key finding: Activation norms correlate with computational intensity**
+
+Analysis of L2 norms of activations at layer 14 across CoT examples revealed:
+
+| Marker Type | Norm vs Overall | Interpretation |
+|-------------|-----------------|----------------|
+| `mathematical` | ↑ HIGHER (+3.11) | Active computation for next token |
+| `reasoning_steps` | ↓ LOWER (-4.22) | Structural/formatting tokens |
+| `reasoning_start` | ↓ LOWER (-2.57) | Setup/restatement, not computation |
+| `conclusion` | ↓ LOWER (-3.11) | Answer already computed, just outputting |
+
+**Interpretation:** High activation norms indicate the model is doing intensive computation to determine the next token. Low norms suggest the next token is predictable/routine.
+
+**Potential implication for faithfulness detection:**
+- Faithful CoT: High norms at mathematical steps (actually computing)
+- Unfaithful CoT: Lower norms at mathematical steps (generating plausible text without real computation)
+
+This is speculative but worth exploring in the main project.
+
+**Other observations:**
+- First token (position 0) has anomalously high norm (~1000+ vs ~65 average) - known transformer phenomenon ("attention sink")
+- Average norm decreases over relative position in CoT (information compression as model narrows to answer?)
+
+**Critical finding: Activation norms increase exponentially across layers**
+
+Empirical analysis of residual stream norms across Qwen's 28 layers:
+
+| Layer Range | Mean Norm | Growth Pattern |
+|-------------|-----------|----------------|
+| Early (0-7) | ~27 | Low, linear increase |
+| Middle (8-20) | ~70 | ~2.5x early, linear |
+| Late (21-27) | ~275 | ~4x middle, exponential |
+
+This happens due to **residual stream accumulation** - each layer ADDS to the stream, so information stacks up.
+
+**IMPORTANT for probing:** When comparing probes across layers, you're working with vectors of very different magnitudes (10x difference between early and late layers). Consider:
+1. **Normalizing activations** before training probes (e.g., L2 normalize to unit vectors)
+2. **Being aware that probe weights will differ in scale** across layers
+3. **Using standardization** (zero mean, unit variance) if comparing probe directions
+
+**What norm does NOT tell us:**
+
+| Norm captures | Norm does NOT capture |
+|---------------|----------------------|
+| Overall magnitude/intensity | Which features are active |
+| "How strongly" represented | "What" is being represented |
+| Processing intensity | Semantic meaning |
+
+**For a comprehensive guide to activation norms**, see the markdown cell in `day8-9_cot_structure_and_dataset.ipynb` (Part 1.4).
 
 #### Alternative: Gemini API (simpler)
 

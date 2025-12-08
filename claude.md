@@ -1,7 +1,7 @@
 # AI Safety Research - Mechanistic Interpretability Portfolio
 
 **Context File for Claude Code Sessions**
-*Last Updated: 2025-12-05*
+*Last Updated: 2025-12-08*
 
 ---
 
@@ -74,13 +74,37 @@ AI-safety-research/
 - ✅ Key conceptual learnings documented in `mats_project_guide.md`
 
 **CURRENT (Days 8-9):**
-- 🔄 Setting up nnsight with Qwen2.5-7B-Instruct
-- 🔄 Learning nnsight API (different from TransformerLens)
-- 🔄 Notebook created: `day8-9_nnsight_setup.ipynb`
-- ⏳ Next: Understanding CoT structure, building CoT dataset
+- ✅ nnsight setup with Qwen2.5-7B-Instruct complete
+- ✅ Activation patching demo working (France→Germany capital)
+- 🔄 CoT structure analysis and dataset building in progress
+- 🔄 Notebook: `day8-9_cot_structure_and_dataset.ipynb`
+
+**KEY DISCOVERY - Activation Norms Correlate with Computation:**
+
+Analysis of L2 activation norms at layer 14 across CoT examples:
+
+| Marker Type | Norm vs Overall | Interpretation |
+|-------------|-----------------|----------------|
+| `mathematical` | ↑ HIGHER (+3.11) | Active computation for next token |
+| `reasoning_steps` | ↓ LOWER (-4.22) | Structural/formatting tokens |
+| `reasoning_start` | ↓ LOWER (-2.57) | Setup/restatement, not computation |
+| `conclusion` | ↓ LOWER (-3.11) | Answer already computed, just outputting |
+
+**Implication for faithfulness:** Faithful CoT may show high norms at math steps (real computation), while unfaithful CoT may show lower norms (generating plausible text without computing). Worth testing!
+
+**Critical: Activation norms increase exponentially across layers**
+
+| Layer Range | Mean Norm | Growth |
+|-------------|-----------|--------|
+| Early (0-7) | ~27 | Linear |
+| Middle (8-20) | ~70 | Linear |
+| Late (21-27) | ~275 | Exponential |
+
+This is due to residual stream accumulation. **For probing: normalize activations when comparing across layers!**
 
 **UPCOMING:**
-- Week 3: CoT dataset creation, analysis tools
+- Complete CoT dataset (faithful + unfaithful examples)
+- Week 3: Analysis tools, baseline probes
 - Week 4: 20-hour intensive research execution
 
 ### Key Learnings from Probe Exercises (Days 3-6)
@@ -104,6 +128,13 @@ AI-safety-research/
 4. **Residual stream accumulates, doesn't overwrite**
    - Each layer adds to residual stream
    - MLP probes can be worse than residual stream probes if MLP isn't computing the target feature
+
+5. **Activation norms grow exponentially across layers (IMPORTANT for probing)**
+   - Early layers: ~27 norm, Middle: ~70, Late: ~275 (in Qwen 28-layer model)
+   - This is due to residual accumulation, NOT more computation in later layers
+   - **When comparing probes across layers, NORMALIZE activations first** (L2 normalize or standardize)
+   - Otherwise probe weights will differ by ~10x in scale between early and late layers
+   - This applies to ALL probe-based projects, not just faithfulness detection
 
 ### Revised Hypotheses (Based on Learnings)
 
@@ -129,12 +160,34 @@ AI-safety-research/
 |----------|--------|---------|
 | `day3-4_first_probes.ipynb` | ✅ Complete | Sentiment probing, layer comparison, generalization testing |
 | `day5-6_advanced_techniques.ipynb` | ✅ Complete | Position analysis, attention heads, MLP probing |
-| `day8-9_nnsight_setup.ipynb` | 🔄 Current | nnsight setup, Qwen loading, activation extraction |
+| `day8-9_nnsight_setup.ipynb` | ✅ Complete | nnsight setup, Qwen loading, activation extraction, patching |
+| `day8-9_cot_structure_and_dataset.ipynb` | 🔄 Current | CoT structure analysis, marker detection, dataset building |
 
 ### Important Files
 - **Project Guide:** `mats_project_guide.md` - Comprehensive guide with key learnings section
 - **Setup Notebook:** `day8-9_nnsight_setup.ipynb` - nnsight/Qwen setup and verification
+- **CoT Notebook:** `day8-9_cot_structure_and_dataset.ipynb` - CoT analysis and dataset creation
 - **Dependencies:** nnsight, transformers, scikit-learn (for Qwen work)
+
+### Key nnsight API Notes (for Future Reference)
+
+```python
+# Trigger model loading (nnsight lazy loads)
+with model.trace("Hello"):
+    _ = model.model.layers[0].output[0].save()
+
+# Shape differences - IMPORTANT!
+# layers[].output[0]: [seq_len, hidden_size] - NO batch dim
+# mlp.output: [seq_len, hidden_size] - NO batch dim
+# self_attn.output[0]: [batch, seq_len, hidden_size] - HAS batch dim
+
+# Convert to float32 before computing norms (float16 overflow)
+acts = hidden.float().detach().cpu().numpy()
+norms = np.linalg.norm(acts, axis=1)
+
+# Use separate traces for different component types
+# (mixing causes OutOfOrderError)
+```
 
 ---
 
