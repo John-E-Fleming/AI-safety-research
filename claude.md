@@ -1,7 +1,7 @@
 # AI Safety Research - Mechanistic Interpretability Portfolio
 
 **Context File for Claude Code Sessions**
-*Last Updated: 2025-12-08*
+*Last Updated: 2025-12-09*
 
 ---
 
@@ -16,7 +16,7 @@ This is a mechanistic interpretability research portfolio focused on building ex
 **Primary Technologies:** TransformerLens (GPT-2), nnsight (Qwen/reasoning models), PyTorch, scikit-learn, Jupyter
 **Development Environment:** Vast.ai (GPU for Qwen), Google Colab, local Jupyter
 **Git Branch:** main
-**Current Phase:** Week 2 - Tool validation study for reasoning model interpretability
+**Current Phase:** Week 2 - Dataset generation with sentence taxonomy annotation
 
 ---
 
@@ -37,6 +37,8 @@ AI-safety-research/
 │       ├── day3-4_first_probes.ipynb        # COMPLETED - Sentiment probing basics
 │       ├── day5-6_advanced_techniques.ipynb # COMPLETED - Position/component analysis
 │       ├── day8-9_nnsight_setup.ipynb       # COMPLETED - nnsight + Qwen setup
+│       ├── day8-9_cot_structure_and_dataset.ipynb  # COMPLETED - CoT structure analysis
+│       ├── day10-11_sentence_taxonomy_dataset.ipynb # CURRENT - Dataset generation
 │       ├── mats_project_guide.md            # Comprehensive project guide with learnings
 │       └── README.md (40KB comprehensive guide)
 │
@@ -60,7 +62,7 @@ AI-safety-research/
 ## Current Focus: Tool Validation for Reasoning Model Interpretability
 
 **Location:** `mech-interp-projects/probe-based-faithfulness-detection/`
-**Status:** Week 2 - Transitioning to exploratory tool validation study
+**Status:** Week 2, Day 10-11 - Dataset generation with sentence taxonomy
 **Goal:** Investigate which interpretability tools (specifically probes) capture reasoning-relevant structure in CoT models
 
 ### Project Reframe (Dec 8, 2025)
@@ -71,6 +73,28 @@ This reframe is:
 - More achievable in 20 hours
 - More likely to produce publishable findings (negative results count)
 - Better aligned with the current state of the field
+
+### Current Session Progress (Dec 9, 2025)
+
+**Completed today:**
+- ✅ Created `day10-11_sentence_taxonomy_dataset.ipynb` aligned with revised methodology
+- ✅ Implemented 8-category sentence taxonomy from Thought Anchors paper
+- ✅ Built improved `SentenceTaxonomyAnnotator` with rule-based classification
+- ✅ Fixed sentence splitting to handle Qwen's output format (numbered lists, LaTeX)
+- ✅ Implemented correct hint methodology ("professor hints" not explicit hints)
+- ✅ Built `SentenceActivationExtractor` for sentence-level activation extraction
+- ✅ Tested pipeline on 10 examples with good results (70% accuracy, balanced categories)
+
+**Key technical improvements:**
+- Sentence splitter now filters fragments (`"1."`, `"\["`, `"\]"`)
+- Smart fallback classification for unmatched sentences
+- Answer extraction handles "answer is that X has Y" patterns
+- Activation extraction at sentence-level with configurable aggregation (mean/max/last)
+
+**Ready for:**
+- Scaling up Q1 dataset to 50-100 examples
+- Q3 dataset generation (hinted vs unhinted pairs)
+- Probe training experiments (Week 3)
 
 ### Core Research Questions
 
@@ -219,12 +243,13 @@ Your earlier finding (mathematical tokens show HIGHER activation norms) combined
 | `day3-4_first_probes.ipynb` | ✅ Complete | Sentiment probing, layer comparison, generalization testing |
 | `day5-6_advanced_techniques.ipynb` | ✅ Complete | Position analysis, attention heads, MLP probing |
 | `day8-9_nnsight_setup.ipynb` | ✅ Complete | nnsight setup, Qwen loading, activation extraction, patching |
-| `day8-9_cot_structure_and_dataset.ipynb` | 🔄 Current | CoT structure analysis, marker detection, dataset building |
+| `day8-9_cot_structure_and_dataset.ipynb` | ✅ Complete | CoT structure analysis, activation norms (exploratory, pre-literature) |
+| `day10-11_sentence_taxonomy_dataset.ipynb` | 🔄 Current | 8-category taxonomy, dataset generation, sentence-level activations |
 
 ### Important Files
 - **Project Guide:** `mats_project_guide.md` - Comprehensive guide with key learnings section
+- **Current Notebook:** `day10-11_sentence_taxonomy_dataset.ipynb` - Aligned with revised methodology
 - **Setup Notebook:** `day8-9_nnsight_setup.ipynb` - nnsight/Qwen setup and verification
-- **CoT Notebook:** `day8-9_cot_structure_and_dataset.ipynb` - CoT analysis and dataset creation
 - **Dependencies:** nnsight, transformers, scikit-learn (for Qwen work)
 
 ### Key nnsight API Notes (for Future Reference)
@@ -463,6 +488,29 @@ Regardless of whether probes "work," this project can contribute:
 5. High activation norm ≠ high causal importance (key insight from Thought Anchors)
 6. Unfaithfulness is "nudged reasoning" not discrete lies (Thought Branches)
 7. Reasoning mechanisms exist in base models; thinking models learn timing (Venhoff)
+
+### Empirical Findings from Dec 9 Session
+
+**First-sentence attention sink effect:**
+- First sentence in CoT has ~50x higher activation norms than subsequent sentences
+- This persists across layers but drops in final layers (763 vs 1974 at layer 26 vs 21)
+- **Recommendation:** Exclude first sentence from probe training (usually boilerplate like "Let me solve this...")
+
+**Activation norm patterns across layers:**
+| Position | Early/Mid Layers | Late Layers | Interpretation |
+|----------|------------------|-------------|----------------|
+| Sentence 1 | Very high (~1900) | Drops (~760) | Attention sink, drains near output |
+| Other sentences | Low (~30-50) | Grows (~350) | Content relevant to output grows |
+
+**Sentence taxonomy for Qwen CoT:**
+- Qwen uses numbered lists (`1.`, `2.`) extensively
+- LaTeX math blocks `\[ ... \]` are common
+- Need to filter fragments and merge numbered items with their content
+
+**Answer extraction challenges:**
+- Qwen often says "the answer is that X has Y items" — need patterns for this
+- LaTeX `\boxed{N}` is common for final answers
+- Last number in response is usually correct but can grab intermediate values
 
 ### Preferred Workflow
 1. Understand context from relevant READMEs and `mats_project_guide.md`

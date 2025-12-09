@@ -1,13 +1,16 @@
-# Personal Project 1: Faithfulness Detection with Probes
+# Personal Project 1: Tool Validation for Reasoning Model Interpretability
 
-**Project Goal:** Build deep probe expertise and execute a sophisticated 20-hour research project on CoT faithfulness detection.
+**Project Goal:** Investigate which interpretability tools (specifically probes) capture reasoning-relevant structure in CoT models, and characterize when they work or fail.
 
-**Timeline:** 4 weeks (Week 1-2: Foundation, Week 3: Prep, Week 4: Execution)
+**Timeline:** 4 weeks (Week 1-2: Foundation + Literature, Week 3: Experiments, Week 4: Validation + Write-up)
+
+**Status:** Week 2 - Dataset generation with sentence taxonomy annotation
 
 ---
 
 ## Table of Contents
 
+- [Current Progress](#current-progress)
 - [Project Overview](#project-overview)
 - [Week 1: Foundations](#week-1-foundations-20-25-hours)
 - [Week 2: Advanced Practice](#week-2-advanced-practice-20-25-hours)
@@ -19,27 +22,72 @@
 
 ---
 
+## Current Progress
+
+*Last Updated: 2025-12-09*
+
+### Completed Work
+
+| Phase | Status | Key Deliverables |
+|-------|--------|------------------|
+| Week 1: Foundations | ✅ Complete | Sentiment probes, layer comparison, generalization testing |
+| Week 1: Advanced Techniques | ✅ Complete | Position analysis, attention heads, MLP probing |
+| Week 2: Literature Review | ✅ Complete | Thought Anchors, Thought Branches, Base Models Know How |
+| Week 2: nnsight Setup | ✅ Complete | Qwen2.5-7B-Instruct, activation extraction, patching |
+| Week 2: Dataset Generation | 🔄 In Progress | 8-category taxonomy, sentence-level activations |
+
+### Current Notebook
+
+`day10-11_sentence_taxonomy_dataset.ipynb` — Implements:
+- 8-category sentence taxonomy from Thought Anchors paper
+- Improved sentence splitter for Qwen's output format
+- Correct hint methodology ("professor hints") from Thought Branches
+- Sentence-level activation extraction
+- Pipeline tested on 10 examples with good results
+
+### Key Findings So Far
+
+1. **First-sentence attention sink:** First sentence has ~50x higher activation norms (exclude from probing)
+2. **Middle layers best:** 37% depth optimal for steering (Venhoff), likely good for probing too
+3. **Category distribution:** Balanced across problem_setup, plan_generation, active_computation, result_consolidation, final_answer
+4. **Model accuracy:** Qwen gets ~70% of math problems correct
+
+---
+
 ## Project Overview
 
 ### Main Research Question
-"What fundamental properties determine when probes can detect unfaithful CoT, and when do they fail?"
+"Which interpretability tools capture reasoning-relevant structure in CoT models?"
+
+This is framed as an **exploratory tool validation study** (per Neel Nanda's guidance) rather than hypothesis-driven research.
+
+### Specific Questions
+
+| Question | Method | Success Criterion |
+|----------|--------|-------------------|
+| Q1: Do probes distinguish sentence types? | Train on 8-category taxonomy | >70% accuracy |
+| Q2: Do probes generalize across problems? | Test on held-out domains | <15% accuracy drop |
+| Q3: Can probes detect hint influence? | Hinted vs unhinted CoT | Above-chance discrimination |
+| Q4: Do probes correlate with resampling? | Compare with counterfactual importance | r > 0.3 |
 
 ### Why This Project
 - Builds foundational skills for AI control work
 - Demonstrates depth over breadth (values mastery of technique)
 - Practical implications for model monitoring
+- **Fills a gap:** Resampling, SAEs, steering vectors validated for reasoning models; probes are untested
 
-### Key Hypotheses
-1. **H1:** Faithfulness detection works better at later layers (closer to output)
-2. **H2:** Information is concentrated at conclusion words ("therefore", "so")
-3. **H3:** Probes generalize within task types but not across
-4. **H4:** Probes are vulnerable to adversarial stylistic changes
+### Revised Hypotheses (Based on Literature)
+1. **H1 (Revised):** Middle layers (~37% depth) outperform late layers (not "later is better")
+2. **H2 (Revised):** Probes on plan generation > probes on computation (Thought Anchors)
+3. **H3 (Unchanged):** Probes generalize within task types but not across
+4. **H4 (Strengthened):** Probes vulnerable to stylistic manipulation (nudged reasoning is subtle)
+5. **H5 (New):** Sentence-averaged activations outperform token-level
 
 ### Success Looks Like
-- Clear finding about when/why probes work or fail
-- Systematic comparison (layers, positions, tasks)
+- Clear characterization of when/why probes work or fail for reasoning models
+- Systematic comparison (layers, positions, sentence types)
 - Honest assessment of limitations
-- Practical recommendations for AI control applications
+- **Valuable whether results are positive, negative, or mixed**
 
 ---
 
