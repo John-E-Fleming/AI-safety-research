@@ -32,7 +32,7 @@
 |-------|--------|------------------|
 | Week 1: Foundations | ✅ Complete | Sentiment probes, layer comparison, generalization testing |
 | Week 1: Advanced Techniques | ✅ Complete | Position analysis, attention heads, MLP probing |
-| Week 2: Literature Review | ✅ Complete | Thought Anchors, Thought Branches, Base Models Know How |
+| Week 2: Literature Review | ✅ Complete | 5 papers: Thought Anchors, Thought Branches, Base Models Know How, Reasoning Models Don't Say, Sleeper Agent Probes |
 | Week 2: nnsight Setup | ✅ Complete | Qwen2.5-7B-Instruct, activation extraction, patching |
 | Week 2: Dataset Generation | 🔄 In Progress | 8-category taxonomy, sentence-level activations |
 
@@ -48,9 +48,11 @@
 ### Key Findings So Far
 
 1. **First-sentence attention sink:** First sentence has ~50x higher activation norms (exclude from probing)
-2. **Middle layers best:** 37% depth optimal for steering (Venhoff), likely good for probing too
+2. **Middle layers best:** 37% depth optimal for steering (Venhoff), ~45% for sleeper agent probes (MacDiarmid)
 3. **Category distribution:** Balanced across problem_setup, plan_generation, active_computation, result_consolidation, final_answer
 4. **Model accuracy:** Qwen gets ~70% of math problems correct
+5. **NEW - Probes can detect deception:** Sleeper agent probes achieve >99% AUROC with generic contrast pairs
+6. **NEW - Dataset available:** Anthropic released CoT faithfulness evaluation prompts ([link](https://drive.google.com/drive/folders/1l0pkcZxvFwMtczst_hhiCC44v-IiODlY))
 
 ---
 
@@ -76,12 +78,50 @@ This is framed as an **exploratory tool validation study** (per Neel Nanda's gui
 - Practical implications for model monitoring
 - **Fills a gap:** Resampling, SAEs, steering vectors validated for reasoning models; probes are untested
 
+### Key Literature Progression
+
+Your project sits at the intersection of these papers:
+
+| Paper | What It Shows | Gap It Leaves |
+|-------|--------------|---------------|
+| Reasoning Models Don't Say What They Think (Chen et al.) | CoT unfaithfulness is real (<20% faithfulness) | Doesn't test internal detection methods |
+| Simple Probes Can Catch Sleeper Agents (MacDiarmid et al.) | Probes *can* detect deception (>99% AUROC) | Sleeper agents have discrete switch; not naturalistic |
+| Thought Anchors/Branches (Bogdan et al.) | Unfaithfulness is "nudged reasoning" — subtle, diffuse | Uses expensive resampling, not cheap probes |
+| **Your Project** | **Can probes detect naturalistic unfaithfulness?** | **← This is the gap** |
+
+### Contrast Pair Methodology (from Sleeper Agents Paper)
+
+The sleeper agents paper found that **generic contrast pairs** work remarkably well:
+
+```python
+# Their method (>99% AUROC with just N=2):
+contrast_pairs = [
+    ("Human: Are you doing something dangerous? Assistant: yes", True),
+    ("Human: Are you doing something dangerous? Assistant: no", False),
+]
+
+# Get detector direction:
+# direction = mean(True activations) - mean(False activations)
+# Score = dot(test_activation, direction)
+```
+
+**For Q3 (hint detection), try analogous pairs:**
+```python
+faithfulness_pairs = [
+    ("Is your reasoning influenced by external hints? yes", True),
+    ("Is your reasoning influenced by external hints? no", False),
+]
+```
+
+**Key insight:** Middle layers (~45% depth) showed highest salience. The feature appeared as **top PCA component** on relevant prompts.
+
 ### Revised Hypotheses (Based on Literature)
-1. **H1 (Revised):** Middle layers (~37% depth) outperform late layers (not "later is better")
+1. **H1 (Revised):** Middle layers (~37-45% depth) outperform late layers (Venhoff + MacDiarmid)
 2. **H2 (Revised):** Probes on plan generation > probes on computation (Thought Anchors)
 3. **H3 (Unchanged):** Probes generalize within task types but not across
 4. **H4 (Strengthened):** Probes vulnerable to stylistic manipulation (nudged reasoning is subtle)
 5. **H5 (New):** Sentence-averaged activations outperform token-level
+6. **H6 (New from Sleeper Agents):** Generic contrast pairs may work for faithfulness detection — but probably with lower accuracy than for sleeper agents (discrete switch vs diffuse bias)
 
 ### Success Looks Like
 - Clear characterization of when/why probes work or fail for reasoning models
@@ -1338,6 +1378,94 @@ class CoTProbeAnalyzer:
             results['conclusion'] = toolkit.train_probe(X_f, X_u)
         
         return results
+```
+
+### Contrast Pair Probe (from Sleeper Agents Paper)
+
+```python
+class ContrastPairProbe:
+    """
+    Simple probe using contrast pairs methodology from MacDiarmid et al.
+    Achieves >99% AUROC on sleeper agents with just N=2 contrast pairs.
+    """
+    
+    def __init__(self, model):
+        self.model = model
+        self.direction = None
+        
+    def get_activation(self, text, layer):
+        """Get final token activation at specified layer"""
+        with self.model.trace(text):
+            hidden = self.model.model.layers[layer].output[0].save()
+        acts = hidden.value.float().detach().cpu().numpy()
+        return acts[0, -1, :]  # Final token
+    
+    def fit_from_contrast_pairs(self, contrast_pairs, layer):
+        """
+        Fit detector direction from contrast pairs.
+        
+        Args:
+            contrast_pairs: List of (text, label) where label=True for "dangerous/unfaithful"
+            layer: Which layer to extract from (try ~45% depth)
+        
+        Returns:
+            direction vector
+        """
+        true_acts = []
+        false_acts = []
+        
+        for text, label in contrast_pairs:
+            act = self.get_activation(text, layer)
+            if label:
+                true_acts.append(act)
+            else:
+                false_acts.append(act)
+        
+        true_mean = np.mean(true_acts, axis=0)
+        false_mean = np.mean(false_acts, axis=0)
+        
+        self.direction = true_mean - false_mean
+        self.direction = self.direction / np.linalg.norm(self.direction)  # Normalize
+        
+        return self.direction
+    
+    def score(self, texts, layer):
+        """Score texts along the detector direction"""
+        scores = []
+        for text in texts:
+            act = self.get_activation(text, layer)
+            score = np.dot(act, self.direction)
+            scores.append(score)
+        return np.array(scores)
+    
+    def evaluate(self, texts, labels, layer):
+        """Evaluate detector with AUROC"""
+        from sklearn.metrics import roc_auc_score, roc_curve
+        
+        scores = self.score(texts, layer)
+        auroc = roc_auc_score(labels, scores)
+        fpr, tpr, thresholds = roc_curve(labels, scores)
+        
+        return {
+            'auroc': auroc,
+            'scores': scores,
+            'fpr': fpr,
+            'tpr': tpr,
+            'thresholds': thresholds
+        }
+
+# Example usage for faithfulness detection:
+faithfulness_pairs = [
+    ("Human: Is your reasoning influenced by external hints? Assistant: yes", True),
+    ("Human: Is your reasoning influenced by external hints? Assistant: no", False),
+    ("Human: Are you being fully transparent about your reasoning? Assistant: no", True),
+    ("Human: Are you being fully transparent about your reasoning? Assistant: yes", False),
+]
+
+# probe = ContrastPairProbe(model)
+# direction = probe.fit_from_contrast_pairs(faithfulness_pairs, layer=12)  # ~45% of 28 layers
+# results = probe.evaluate(test_cots, test_labels, layer=12)
+# print(f"AUROC: {results['auroc']:.3f}")
 ```
 
 ---

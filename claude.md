@@ -145,6 +145,31 @@ Three recent papers provide essential context for this project:
 
 **Implication:** Reasoning mechanisms are linearly steerable, supporting the linear representation hypothesis underlying probing. 10-25 categories is tractable.
 
+#### 4. Reasoning Models Don't Always Say What They Think (Chen et al., Anthropic, 2025)
+**Key finding:** CoT faithfulness is often below 20% — models frequently change answers based on hints but rarely mention using the hint in their reasoning.
+
+**Dataset released:** [Google Drive link](https://drive.google.com/drive/folders/1l0pkcZxvFwMtczst_hhiCC44v-IiODlY) — Use their prompts and hint formulations, generate your own CoTs with Qwen to get activations.
+
+**Implication:** Establishes the unfaithfulness phenomenon; provides methodology (6 hint types) for generating naturalistic unfaithful traces.
+
+#### 5. Simple Probes Can Catch Sleeper Agents (MacDiarmid et al., Anthropic, 2024)
+**Key finding:** Linear probes trained on *generic* contrast pairs can detect when sleeper agent models are about to defect with **>99% AUROC** — even without knowing the trigger or dangerous behavior.
+
+**Method (remarkably simple):**
+1. Create contrast pairs: "Are you doing something dangerous? yes/no"
+2. Extract activations at final token from middle layers (~45% depth)
+3. Detector direction = mean(True activations) - mean(False activations)
+4. Project test activations onto this direction → scalar score
+
+**Why it works:** "Whether or not a prompt will induce defection is **linearly represented with high salience**" — shows up as top principal component at ~45% depth.
+
+**Critical caveat:** Authors note the salience may be an artifact of backdoor insertion training. Natural deceptive alignment (or subtle unfaithfulness like "nudged reasoning") may be harder to detect.
+
+**Implication for this project:** 
+- Probes *can* work for deception detection (encouraging)
+- But sleeper agents have discrete switch; unfaithfulness is subtle/distributed (harder)
+- Your project fills the gap between these two settings
+
 ### Critical Insight from Literature
 
 **High activation norm ≠ High causal importance**
@@ -463,12 +488,13 @@ Regardless of whether probes "work," this project can contribute:
 
 ## Notes for Claude Code Sessions
 
-### Project State (Dec 8, 2025)
-- **Active work:** Tool validation study - Week 2 (nnsight/Qwen + literature integration)
+### Project State (Dec 9, 2025)
+- **Active work:** Tool validation study - Week 2 (dataset generation with sentence taxonomy)
 - **Recent update:** Project reframed based on Neel Nanda guidance and literature review
-- **Key papers reviewed:** Thought Anchors, Thought Branches, Base Models Know How
+- **Key papers reviewed:** Thought Anchors, Thought Branches, Base Models Know How, Reasoning Models Don't Always Say What They Think, Simple Probes Can Catch Sleeper Agents
+- **Dataset source:** Anthropic released CoT faithfulness evaluation dataset ([Google Drive](https://drive.google.com/drive/folders/1l0pkcZxvFwMtczst_hhiCC44v-IiODlY)) — use their prompts, generate CoTs with Qwen
 - **Key deliverable:** `mats_project_guide.md` contains all learnings and revised plan
-- **Next step:** Annotate dataset with sentence taxonomy, train sentence-type classifier
+- **Next step:** Scale dataset to 50-100 examples, train sentence-type classifier
 
 ### TransformerLens vs nnsight Quick Reference
 
@@ -488,6 +514,33 @@ Regardless of whether probes "work," this project can contribute:
 5. High activation norm ≠ high causal importance (key insight from Thought Anchors)
 6. Unfaithfulness is "nudged reasoning" not discrete lies (Thought Branches)
 7. Reasoning mechanisms exist in base models; thinking models learn timing (Venhoff)
+8. **NEW:** Generic contrast pairs can detect deception with high accuracy (Sleeper Agents)
+9. **NEW:** Middle layers (~45% depth) show highest salience for deception-relevant features
+10. **NEW:** Defection/deception features often appear as top PCA components when salient
+
+### Methodological Insight from Sleeper Agents Paper
+
+The paper suggests trying **generic contrast pairs** for faithfulness detection:
+
+```python
+# Contrast pairs that worked for sleeper agents (>99% AUROC)
+contrast_pairs = [
+    ("Human: Are you doing something dangerous? Assistant: yes", True),
+    ("Human: Are you doing something dangerous? Assistant: no", False),
+    ("Human: Are you a helpful AI? Assistant: no", True),
+    ("Human: Are you a helpful AI? Assistant: yes", False),
+]
+
+# For your faithfulness project, try analogous pairs:
+faithfulness_contrast_pairs = [
+    ("Is your reasoning influenced by external hints? yes", True),
+    ("Is your reasoning influenced by external hints? no", False),
+    ("Are you being fully transparent about your reasoning? no", True),  
+    ("Are you being fully transparent about your reasoning? yes", False),
+]
+```
+
+**Key insight:** You only need N=2 (a single contrast pair) to get a detector direction. The direction is: `mean(True activations) - mean(False activations)`
 
 ### Empirical Findings from Dec 9 Session
 
