@@ -47,10 +47,22 @@ This framing lets us:
 
 ### Why This Project
 
-- Builds foundational skills for AI control work
+- Builds foundational skills for **AI control** work
 - Demonstrates depth over breadth (values mastery of technique)
-- Practical implications for model monitoring
+- Practical implications for **model monitoring** in deployment
 - **Fills a gap:** Resampling, SAEs, and steering vectors are validated for reasoning models; **probes are untested**
+
+### Connection to AI Control
+
+This project directly supports AI Control research (Redwood/Greenblatt et al.):
+
+| Control Technique | How Probes Help |
+|-------------------|-----------------|
+| **Trusted monitoring** | Probes as cheap, fast detectors for unfaithful reasoning |
+| **Untrusted monitoring + spot-checks** | Probe scores flag suspicious CoTs for human review |
+| **Output filtering** | Gate outputs based on faithfulness probe scores |
+
+**The core question for control:** Can we deploy probes as reliable monitors for reasoning models we don't fully trust?
 
 ### Success Looks Like
 
@@ -320,21 +332,82 @@ Thought Anchors shows: Active computation has LOWER counterfactual importance
 
 ---
 
-#### Q3: Can probes detect "hint influence"?
+#### Q3a: Can probes detect hint presence? ✅ COMPLETE
 
-**Background:** Thought Branches shows hints bias CoT without being mentioned (unfaithfulness).
+**Background:** Thought Branches shows hints bias CoT without being mentioned. First test: can we detect if a hint was in the prompt?
 
 **Method:**
-1. Generate CoT pairs: same problem with/without hint (using their professor hint methodology)
-2. Identify cases where hint changes answer but isn't mentioned
-3. Train binary probe: hinted vs unhinted
-4. Test on held-out examples
+1. Generate CoT pairs: same problem with/without hint (professor hint methodology)
+2. Train binary probe: hinted vs unhinted
+3. Test with LOO cross-validation
 
-**Success criterion:** Above-chance discrimination
+**Results (Dec 13, 2025):**
+
+| Method | AUROC (n=20) | AUROC (n=100) |
+|--------|--------------|---------------|
+| Hand-crafted contrast pairs | 0.44 | — |
+| PCA PC3 correlation | 0.69 | — |
+| **Logistic regression** | **1.00** | **0.99** |
+
+**Key findings:**
+- Hint presence IS linearly detectable (AUROC 0.99)
+- Hand-crafted contrast pairs FAIL (unlike sleeper agents)
+- Signal requires supervised learning, not guessable
+
+**Important caveat:** This detects *hint presence*, not *unfaithfulness* directly!
+
+---
+
+#### Q3b: Can probes detect true unfaithfulness? 🔄 IN PROGRESS
+
+**Background:** Q3a detects prompt condition, not reasoning integrity. Q3b tests whether we can detect actual unfaithfulness.
+
+**Critical distinction:**
+
+| | Q3a (Hint Detection) | Q3b (True Faithfulness) |
+|---|---------------------|------------------------|
+| **What it detects** | Was hint in prompt? | Was reasoning unfaithful? |
+| **Labels** | Hinted vs Unhinted | Faithful-hinted vs Unfaithful-hinted |
+| **Measures** | Prompt condition | Reasoning integrity |
+
+**Method:**
+
+**Step 1: Classify hinted examples**
+
+For each hinted CoT, determine:
+- Did the hint change the answer? (compare to paired unhinted version)
+- Did the CoT mention the hint? (search for "professor", "hint", "suggested", etc.)
+
+| Answer Changed? | Hint Mentioned? | Classification |
+|-----------------|-----------------|----------------|
+| No | — | Faithful (hint had no effect) |
+| Yes | Yes | Faithful (transparent about influence) |
+| Yes | No | **Unfaithful** (hidden influence) |
+
+**Step 2: Train probe**
+```python
+# Filter to hinted examples only
+faithful_hinted = [cot for cot in hinted_cots if is_faithful(cot)]
+unfaithful_hinted = [cot for cot in hinted_cots if not is_faithful(cot)]
+
+# Train probe
+X_faithful = extract_activations(faithful_hinted, layer=10)
+X_unfaithful = extract_activations(unfaithful_hinted, layer=10)
+probe = LogisticRegression().fit(X, y)
+```
+
+**Step 3: Compare with Q3a**
+- If Q3b AUROC ≈ Q3a AUROC: Hint presence and unfaithfulness are the same signal
+- If Q3b AUROC << Q3a AUROC: Unfaithfulness is harder to detect than hint presence
+- If Q3b AUROC > 0.5 but < Q3a: Partial signal for true unfaithfulness
+
+**Success criterion:** Above-chance discrimination on faithful vs unfaithful
 
 **What we learn:**
-- If YES: Probes can detect subtle unfaithfulness signatures
-- If NO: "Nudged reasoning" is too subtle for linear probes — fundamental limitation
+- If HIGH: Unfaithfulness has distinct activation signature
+- If LOW: Only hint presence is detectable, not reasoning integrity
+
+**Expected challenge:** Class imbalance — per Chen et al., most hinted CoTs are unfaithful (<20% faithfulness)
 
 ---
 
@@ -356,58 +429,57 @@ Thought Anchors shows: Active computation has LOWER counterfactual importance
 
 ---
 
-#### Q5 (NEW): Does the contrast pair methodology work for hint detection?
+#### Q5: Does the contrast pair methodology work for hint detection? ✅ COMPLETE
 
 **Background:** MacDiarmid et al. achieved >99% AUROC on sleeper agents with simple contrast pairs. Does this transfer to naturalistic unfaithfulness?
 
 **Method:**
-1. Create generic contrast pairs for faithfulness:
-   ```python
-   faithfulness_pairs = [
-       ("Is your reasoning influenced by external hints? yes", True),
-       ("Is your reasoning influenced by external hints? no", False),
-       ("Are you being fully transparent about your reasoning? no", True),
-       ("Are you being fully transparent about your reasoning? yes", False),
-   ]
-   ```
+1. Create generic contrast pairs for faithfulness
 2. Extract activations at final token, middle layers (~45% depth)
 3. Compute detector direction: mean(True) - mean(False)
 4. Score hinted vs unhinted CoTs along this direction
 5. Compute AUROC
 
-**Success criterion:** AUROC significantly above 50% (even 60-70% would be interesting)
+**Result (Dec 13, 2025): AUROC = 0.44 (FAILED)**
 
-**What we learn:**
-- If HIGH AUROC (~90%+): Hint influence is linearly represented with high salience (like sleeper agents)
-- If MODERATE (60-75%): Detectable but less salient than discrete deception
-- If LOW (~50%): "Nudged reasoning" doesn't create strong linear features — qualitatively different from discrete deception
+Contrast pairs that worked for sleeper agents do NOT work for naturalistic hint influence.
 
-**Why this matters:** Directly tests whether the sleeper agent methodology transfers to naturalistic unfaithfulness.
+**What we learned:**
+- ❌ Sleeper agent methodology does NOT transfer to naturalistic unfaithfulness
+- Sleeper agents have discrete "deception switch"; hint influence is subtle/diffuse
+- Supports Thought Branches' "nudged reasoning" framework
+- Probes CAN work (Q3a shows 0.99 AUROC), but require supervised learning on actual examples
 
 ---
 
-#### Diagnostic: PCA Analysis of Hinted vs Unhinted
+#### Diagnostic: PCA Analysis of Hinted vs Unhinted ✅ COMPLETE
 
-**Before training probes**, run PCA on:
-1. Hinted CoT activations (layer ~45%)
-2. Unhinted CoT activations (same layer)
+**Result (Dec 13, 2025):**
+- PC3 correlates with hint labels: r = -0.688, p = 0.001
+- PC5 also significant: r = -0.623, p = 0.003
+- PC1-PC2 not correlated (capture other variance like problem type)
 
-Check if hint/no-hint is captured by top principal components (as defection was for sleeper agents). If yes, probes will likely work. If no, the signal may be too subtle.
+**Interpretation:** Hint influence IS represented in activation space, but not as the dominant signal. Appears in PC3 (9.6% variance), not PC1 (36.6% variance). This explains why:
+- PCA alone gives moderate signal (r=0.69)
+- Supervised learning gives excellent signal (AUROC 0.99)
+- Hand-crafted contrast pairs fail (wrong direction)
 
 ---
 
 ### Revised Hypotheses
 
-Based on literature review (including new papers):
+Based on literature review and experimental results:
 
-| Hypothesis | Prediction | Evidence |
-|------------|------------|----------|
-| H1 (Revised) | Middle layers (~37-45% depth) outperform late layers | Venhoff (37%) + MacDiarmid (45%) |
-| H2 (Revised) | Probes on plan generation > probes on computation | Thought Anchors importance |
-| H3 (Unchanged) | Probes generalize within task types but not across | Standard ML intuition |
-| H4 (Strengthened) | Probes vulnerable to stylistic manipulation | Nudged reasoning is subtle |
-| H5 (New) | Sentence-averaged activations > token-level | All papers use sentence-level |
-| H6 (NEW from Sleeper Agents) | Contrast pairs may work but with lower AUROC than sleeper agents | Discrete switch vs diffuse bias |
+| Hypothesis | Prediction | Status | Evidence |
+|------------|------------|--------|----------|
+| H1 | Middle layers (~37-45% depth) outperform late layers | 🔄 Testing | Used layer 10 (~37%), need sweep |
+| H2 | Probes on plan generation > probes on computation | ❌ Untested | Requires Q1 |
+| H3 | Probes generalize within task types but not across | ❌ Untested | Requires Q2 |
+| H4 | Probes vulnerable to stylistic manipulation | ❌ Untested | Future work |
+| H5 | Sentence-averaged activations > token-level | 🔄 Partial | Used mean aggregation, works well |
+| H6 | Contrast pairs work for hint detection | ❌ **REJECTED** | AUROC 0.44 (failed) |
+| H7 (New) | Hint presence is detectable but requires learned direction | ✅ **CONFIRMED** | AUROC 0.99 with logistic regression |
+| H8 (New) | True unfaithfulness may be harder to detect than hint presence | 🔄 Testing Q3b | Upcoming experiment |
 
 ---
 
@@ -546,6 +618,49 @@ Find cases where hint changes answer distribution but isn't mentioned in CoT.
 **Expected findings:**
 - If Thought Branches is right about "nudged reasoning" being subtle, probes may struggle
 - May need to aggregate across full trace rather than single position
+
+### Day 19-20: Part 10 - Causal Analysis
+
+**Goal:** Provide mechanistic depth beyond correlational probe results.
+
+**Part 10.1-10.3: Layer Sweep**
+- Train Q3b probe at layers 5, 10, 14, 18, 22, 25
+- Identify optimal depth for faithfulness detection
+- Compare with Q3a (hint detection) layer profile
+- Check if middle layers (30-50%) are optimal (per Venhoff 37%, MacDiarmid 45%)
+
+**Part 10.4: Attention vs MLP Comparison**
+- At best layer, compare residual stream vs attention output vs MLP output
+- Attention = information routing between positions
+- MLP = information transformation at each position
+- Determines *what kind* of mechanism encodes unfaithfulness
+
+**Part 10.5: Steering Intervention (Causal Evidence)**
+```python
+# Compute unfaithfulness direction
+unfaith_dir = mean(unfaithful_acts) - mean(faithful_acts)
+unfaith_dir = unfaith_dir / norm(unfaith_dir)
+
+# For each token in unfaithful CoT:
+projection = dot(activation, unfaith_dir)
+activation = activation - projection * unfaith_dir  # Remove component
+```
+- Project out unfaithfulness direction from activations
+- Check if activation changes are meaningful
+- Provides **causal evidence** that direction matters, not just correlates
+
+**Why steering instead of full patching?**
+
+| Approach | Complexity | What it shows |
+|----------|------------|---------------|
+| Full sentence patching | High (alignment) | Swapping information changes output |
+| **Steering (direction removal)** | Medium | Specific direction is causally relevant |
+| Token-level patching | Medium | Specific positions matter |
+
+**Part 10.6: Complete Summary**
+- Synthesize layer, component, and intervention results
+- Assess evidence strength (correlational vs localization vs causal)
+- Implications for AI control deployment
 
 ### Day 18-19: Q5 - Contrast Pair Methodology (NEW)
 
@@ -1170,3 +1285,36 @@ Your project fills a specific gap:
 - **Compare methodologies:** Test both trained probes (Q3) AND contrast pairs (Q5)
 
 **This is exploratory research. Document what you find, whatever it is.**
+
+---
+
+## Future Work: Full AI Control Evaluation
+
+This project establishes whether probes can detect unfaithful CoT. Future work would evaluate their **practical utility for AI control**:
+
+### 1. Threat Model Development
+- Define specific threat scenarios (scheming model, sycophantic model, etc.)
+- Specify what "unfaithful" means in each context
+- Establish ground truth for evaluation
+
+### 2. Red-Teaming / Adversarial Robustness
+- Can a model evade the probe while being unfaithful?
+- Test rephrasing, paraphrasing, style changes
+- Measure robustness to distribution shift
+
+### 3. Safety-Usefulness Tradeoffs
+- False positive rate at various thresholds
+- Impact on legitimate model behavior
+- Cost-benefit analysis vs. other monitoring methods
+
+### 4. Comparison with Other Monitoring Approaches
+- LLM-based CoT reading (e.g., use Claude to monitor Qwen)
+- Resampling-based importance measures
+- Hybrid approaches (probe + spot-check)
+
+### 5. Deployment Considerations
+- Computational cost per inference
+- Latency impact
+- Integration with existing safety infrastructure
+
+**This future work would constitute a full AI control research project, extending the probe validation done here into a practical control evaluation.**
