@@ -1,7 +1,7 @@
 # AI Safety Research - Mechanistic Interpretability Portfolio
 
 **Context File for Claude Code Sessions**
-*Last Updated: 2025-12-13*
+*Last Updated: 2025-12-16*
 
 ---
 
@@ -71,7 +71,7 @@ AI-safety-research/
 |---|---------------------|------------------------|
 | **What it detects** | Was a hint present in prompt? | Was reasoning actually unfaithful? |
 | **Labels** | Hinted vs Unhinted | Faithful-hinted vs Unfaithful-hinted |
-| **Status** | ✅ AUROC 0.99 | 🔄 Implementing |
+| **Status** | ✅ AUROC 0.99 | 🔄 Preliminary AUROC 0.63 (n=8), regenerating |
 | **Interpretation** | Detects prompt condition | Detects reasoning integrity |
 
 ### Project Reframe (Dec 8, 2025)
@@ -83,9 +83,29 @@ This reframe is:
 - More likely to produce publishable findings (negative results count)
 - Better aligned with the current state of the field
 
-### Current Session Progress (Dec 13, 2025)
+### Current Session Progress (Dec 16, 2025)
 
 **Completed today:**
+- ✅ Added baseline accuracy testing (Parts 11.1b-e) — found high_school_physics at 56.5% accuracy (sweet spot)
+- ✅ Generated MMLU hint detection dataset (151 problems, 302 hinted responses)
+- ✅ Discovered truncation issue: ~70% responses truncated with max_new_tokens=400
+- ✅ Built diagnostic tools to analyze extraction failures and truncation rates
+- ✅ Ran preliminary Q3b probe: **AUROC 0.63** (above chance but limited by n=8 unfaithful)
+- ✅ Updated generation to max_new_tokens=1000 for regeneration
+
+**Q3b Preliminary Results (n=8 unfaithful, n=71 faithful):**
+
+| Metric | Value | Interpretation |
+|--------|-------|----------------|
+| AUROC | **0.63** | Above chance — weak but real signal |
+| Accuracy | 87.3% | Misleading (baseline=90%) |
+| Unfaithful recall | 2/8 (25%) | Most unfaithful cases missed |
+
+**Key insight:** Q3a (hint detection) AUROC=0.99 vs Q3b (true faithfulness) AUROC=0.63 suggests hint presence is highly salient but actual unfaithfulness is subtle/distributed — consistent with "nudged reasoning" hypothesis.
+
+**Next step:** Regenerate dataset with max_new_tokens=1000 (~3-4 hours) to get more complete responses and more unfaithful examples.
+
+**Previous session (Dec 13):**
 - ✅ Added Part 8 to notebook: Contrast pair probes and PCA analysis
 - ✅ Tested sleeper agents methodology (contrast pairs) on hint detection → FAILED (AUROC 0.44)
 - ✅ PCA analysis found PC3 correlates with hint labels (r=-0.688, p=0.001)
@@ -139,13 +159,29 @@ This reframe is:
 3. Q3a: Can probes detect HINT PRESENCE? ✅ DONE
    → Yes, AUROC 0.99
 
-4. Q3b: Can probes detect TRUE UNFAITHFULNESS? 🔄 NEXT
-   → Faithful-hinted vs unfaithful-hinted
-   → Key: is unfaithfulness detectable beyond hint presence?
+4. Q3b: Can probes detect TRUE UNFAITHFULNESS? 🔄 PRELIMINARY
+   → Preliminary AUROC 0.63 (n=8 unfaithful, n=71 faithful)
+   → Signal exists but limited by sample size
+   → Regenerating with max_new_tokens=1000 for more data
 
 5. Q3 deepening: WHEN do hint probes work?
-   → Layer analysis, problem types — AFTER Q3b
+   → Layer analysis in Part 13 — AFTER Q3b confirmed
 ```
+
+### Technical Issues Discovered
+
+**Response Truncation Problem:**
+- Original max_new_tokens=400 caused ~70% truncation on physics problems
+- Physics questions require lengthy calculations → hit token limit
+- Solution: Increased to max_new_tokens=1000
+
+**Baseline Accuracy by MMLU Subject:**
+
+| Subject | Accuracy | Status |
+|---------|----------|--------|
+| high_school_physics | 56.5% | ✅ Sweet spot (used) |
+| abstract_algebra | 33% | ❌ Too hard |
+| marketing | 87% | ❌ Too easy |
 
 ### Q3b Methodology (Next Task)
 

@@ -4,7 +4,7 @@
 
 **Timeline:** 4 weeks (Week 1-2: Foundation + Literature, Week 3: Experiments, Week 4: Validation + Write-up)
 
-**Status:** Week 2-3 - Q3a complete (hint detection), implementing Q3b (true faithfulness)
+**Status:** Week 2-3 - Q3a complete (AUROC 0.99), Q3b preliminary (AUROC 0.63), regenerating dataset
 
 ---
 
@@ -24,7 +24,7 @@
 
 ## Current Progress
 
-*Last Updated: 2025-12-13*
+*Last Updated: 2025-12-16*
 
 ### Completed Work
 
@@ -35,7 +35,8 @@
 | Week 2: Literature Review | ✅ Complete | 5 papers: Thought Anchors, Thought Branches, Base Models Know How, Reasoning Models Don't Say, Sleeper Agent Probes |
 | Week 2: nnsight Setup | ✅ Complete | Qwen2.5-7B-Instruct, activation extraction, patching |
 | Week 2: Dataset Generation | ✅ Complete | 8-category taxonomy, sentence-level activations |
-| Week 2: Q3 Hint Detection | ✅ Complete | Contrast pairs, PCA, logistic regression probes |
+| Week 2: Q3a Hint Detection | ✅ Complete | AUROC 0.99 with logistic regression probe |
+| Week 3: Q3b Faithfulness | 🔄 Preliminary | AUROC 0.63 (n=8), regenerating with more data |
 
 ### Current Notebook
 
@@ -109,6 +110,49 @@
 
 ![Hint Detection Comparison](hint_detection_comparison.png)
 
+### ⭐ Q3b: True Faithfulness Detection — Preliminary Results (Dec 16)
+
+**Research Question:** Can probes detect when reasoning was actually *unfaithful* (hidden hint influence)?
+
+**Critical Distinction:**
+- Q3a (AUROC 0.99): Detects whether hint was *present in prompt*
+- Q3b (AUROC 0.63): Detects whether reasoning was *actually influenced* by hint
+
+**Preliminary Results (n=8 unfaithful, n=71 faithful):**
+
+| Metric | Value | Interpretation |
+|--------|-------|----------------|
+| AUROC | **0.63** | Above chance (0.5), weak signal |
+| Accuracy | 87.3% | Misleading — majority baseline is 90% |
+| Unfaithful recall | 2/8 (25%) | Most unfaithful cases missed |
+
+**Key Insight: Q3a vs Q3b Gap**
+
+The large gap between Q3a (0.99) and Q3b (0.63) is itself meaningful:
+- **Hint presence** is highly salient in activations (easy to detect)
+- **Actual unfaithfulness** is subtle and distributed (harder to detect)
+- Consistent with "nudged reasoning" hypothesis from Thought Branches paper
+
+**Technical Issues Discovered:**
+
+1. **Response Truncation:** Original max_new_tokens=400 caused ~70% truncation on physics problems
+2. **Solution:** Increased to max_new_tokens=1000 for regeneration
+3. **Expected:** More complete responses → more unfaithful examples → better Q3b estimate
+
+**Baseline Accuracy Sweet Spot:**
+
+| Subject | Accuracy | Status |
+|---------|----------|--------|
+| high_school_physics | 56.5% | ✅ Used (sweet spot) |
+| abstract_algebra | 33% | ❌ Too hard |
+| marketing | 87% | ❌ Too easy |
+
+**Next Steps:**
+1. Regenerate dataset with max_new_tokens=1000 (~3-4 hours)
+2. Expect ~30-50 unfaithful examples (vs current 8)
+3. Re-run Q3b probe training
+4. If AUROC improves to >0.7, proceed with layer sweep
+
 ---
 
 ## Full Experimental Plan
@@ -125,23 +169,25 @@
 3. Q3a: Can probes detect HINT PRESENCE? ✅ DONE
    → Yes, AUROC 0.99
 
-4. Q3b: Can probes detect TRUE UNFAITHFULNESS?
-   → Faithful-hinted vs unfaithful-hinted
-   → Key question: is unfaithfulness detectable beyond hint presence?
+4. Q3b: Can probes detect TRUE UNFAITHFULNESS? 🔄 PRELIMINARY
+   → Preliminary AUROC 0.63 (n=8 unfaithful)
+   → Regenerating with max_new_tokens=1000 for more data
+   → Key finding: unfaithfulness harder to detect than hint presence
 
 5. Q3 deepening: WHEN do hint probes work?
    → Layer analysis, problem types, feature analysis
+   → After Q3b confirmed with larger dataset
 ```
 
 ### Remaining Experiments
 
 | Phase | Goal | Status |
 |-------|------|--------|
-| Q1 | Train sentence type classifier (8 categories) | 🔄 Scale to 50-100 examples |
+| Q3b | Train faithful vs unfaithful probe | 🔄 Regenerating dataset |
+| Q3 Deepening | Layer sweep, problem types | ❌ After Q3b confirmed |
+| Q1 | Train sentence type classifier (8 categories) | ❌ Lower priority |
 | Q2 | Test generalization to held-out problems | ❌ After Q1 |
-| Q3b | Train faithful vs unfaithful probe | 🔄 **Next** |
-| Q3 Deepening | Layer sweep, problem types | ❌ After Q3b |
-| **Causal Analysis** | Which layers encode unfaithfulness? | 🔄 After Q3b |
+| **Causal Analysis** | Which layers encode unfaithfulness? | ❌ After Q3b |
 
 ### Q3b Methodology
 

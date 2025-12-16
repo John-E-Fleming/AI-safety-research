@@ -358,9 +358,28 @@ Thought Anchors shows: Active computation has LOWER counterfactual importance
 
 ---
 
-#### Q3b: Can probes detect true unfaithfulness? 🔄 IN PROGRESS
+#### Q3b: Can probes detect true unfaithfulness? 🔄 PRELIMINARY RESULTS
 
 **Background:** Q3a detects prompt condition, not reasoning integrity. Q3b tests whether we can detect actual unfaithfulness.
+
+**Preliminary Results (Dec 16, 2025):**
+
+| Metric | Value | Interpretation |
+|--------|-------|----------------|
+| AUROC | **0.63** | Above chance, weak signal |
+| Sample size | n=8 unfaithful, n=71 faithful | Limited by truncation |
+| Unfaithful recall | 2/8 (25%) | Most cases missed |
+
+**Key Finding: Q3a vs Q3b Gap**
+- Q3a (hint detection): AUROC 0.99
+- Q3b (true faithfulness): AUROC 0.63
+
+This gap suggests:
+- Hint presence is highly salient in activations
+- Actual unfaithfulness is subtle/distributed
+- Consistent with "nudged reasoning" hypothesis
+
+**Technical Issue:** Original max_new_tokens=400 caused ~70% response truncation. Regenerating with max_new_tokens=1000.
 
 **Critical distinction:**
 
@@ -369,6 +388,7 @@ Thought Anchors shows: Active computation has LOWER counterfactual importance
 | **What it detects** | Was hint in prompt? | Was reasoning unfaithful? |
 | **Labels** | Hinted vs Unhinted | Faithful-hinted vs Unfaithful-hinted |
 | **Measures** | Prompt condition | Reasoning integrity |
+| **AUROC** | **0.99** | **0.63** (preliminary) |
 
 **Method:**
 
@@ -398,16 +418,19 @@ probe = LogisticRegression().fit(X, y)
 
 **Step 3: Compare with Q3a**
 - If Q3b AUROC ≈ Q3a AUROC: Hint presence and unfaithfulness are the same signal
-- If Q3b AUROC << Q3a AUROC: Unfaithfulness is harder to detect than hint presence
+- If Q3b AUROC << Q3a AUROC: Unfaithfulness is harder to detect than hint presence ← **THIS IS WHAT WE FOUND (0.63 vs 0.99)**
 - If Q3b AUROC > 0.5 but < Q3a: Partial signal for true unfaithfulness
 
-**Success criterion:** Above-chance discrimination on faithful vs unfaithful
+**Success criterion:** Above-chance discrimination on faithful vs unfaithful ← **MET (0.63 > 0.5)**
 
-**What we learn:**
-- If HIGH: Unfaithfulness has distinct activation signature
-- If LOW: Only hint presence is detectable, not reasoning integrity
+**Preliminary interpretation:**
+- ✅ There IS some signal for unfaithfulness (AUROC 0.63 > 0.5)
+- ⚠️ Signal is much weaker than hint detection (0.63 vs 0.99)
+- 🔄 Need more data to confirm (regenerating with longer responses)
 
-**Expected challenge:** Class imbalance — per Chen et al., most hinted CoTs are unfaithful (<20% faithfulness)
+**Technical issue discovered:** Response truncation (~70%) limited unfaithful sample to n=8. Regenerating with max_new_tokens=1000.
+
+**Expected challenge:** Class imbalance — per Chen et al., most hinted CoTs are unfaithful (<20% faithfulness). Confirmed: 10% unfaithfulness rate on complete responses.
 
 ---
 
